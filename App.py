@@ -21,7 +21,7 @@ users = {}
 # Configuration - replace these with your actual Google API credentials
 CLIENT_ID = '527754901009-al8b0eh401q66h99njl7sinfbqhi3b24.apps.googleusercontent.com'
 CLIENT_SECRET = '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'
-REDIRECT_URI = 'http://localhost:5000/oauth2callback'
+REDIRECT_URI = 'http://localhost:5001/oauth2callback'
 # Full access for creating and updating events
 SCOPE = 'https://www.googleapis.com/auth/calendar'
 N8N_WEBHOOK_URL = 'https://stable-distinctly-honeybee.ngrok-free.app/webhook-test/Google_Credentials'  # n8n webhook
@@ -127,4 +127,4 @@ def oauth2callback():
 
 if __name__ == '__main__':
     # For local development only; configure production settings appropriately.
-    app.run(debug=True)
+    app.run(debug=True, port=5001)

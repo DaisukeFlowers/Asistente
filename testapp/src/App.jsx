@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import './App.css';
 import React from 'react';
 
-const API_URL = 'http://localhost:5000';
+const API_URL = 'http://localhost:5001';
 
 function App() {
   const [email, setEmail] = useState('');
