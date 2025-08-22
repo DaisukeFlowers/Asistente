@@ -6,26 +6,52 @@ import os
 from functools import wraps
 
 app = Flask(__name__)
-CORS(app, supports_credentials=True, origins=[
-    "http://localhost:5173"
-])  # This enables CORS for all routes
+#CORS(app, supports_credentials=True, origins=[
+    #"http://localhost:5173"
+#])  # This enables CORS for all routes
 
-app.secret_key = '4ed3c88157a9b98d2c9b39976bcd94783191d4ff280055919cbaed94965f9a54'
+# -------------------------------------------------- Configuracion Local/Dev ------------------------------------------- #
+#app.secret_key = '4ed3c88157a9b98d2c9b39976bcd94783191d4ff280055919cbaed94965f9a54'
+#app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+#app.config['SESSION_COOKIE_SECURE'] = False
+# Configuration - replace these with your actual Google API credentials
+#CLIENT_ID = '527754901009-al8b0eh401q66h99njl7sinfbqhi3b24.apps.googleusercontent.com'
+#CLIENT_SECRET = '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'
+#REDIRECT_URI = 'http://localhost:5001/oauth2callback'
+# Full access for creating and updating events
+#SCOPE = 'https://www.googleapis.com/auth/calendar'
+#N8N_WEBHOOK_URL = 'https://stable-distinctly-honeybee.ngrok-free.app/webhook-test/Google_Credentials'  # n8n webhook
+# ------------------------------------------------------- Configuracion Local/Dev -------------------------------------- #
 
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_SECURE'] = False
+# ------------------------------------------------------------ Configuracion Render --------------------------------- #
+# Secret key (cambia esto en Render)
+app.secret_key = os.getenv('SECRET_KEY', 'dev-secret-change-me')
+# Cookies de sesión (producción en https → Secure=True)
+# Si el frontend está en dominio diferente (p. ej. app.carnerucos.mx) y este backend en api.carnerucos.mx,
+# usa SameSite=None y Secure=True para que el navegador mande cookies cross-site.
+app.config['SESSION_COOKIE_SAMESITE'] = os.getenv('SESSION_COOKIE_SAMESITE', 'Lax')  # 'None' si frontend y backend están en distintos subdominios
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('SESSION_COOKIE_SECURE', 'true').lower() == 'true'
+# CORS
+CORS(app,
+     supports_credentials=True,
+     origins=[o.strip() for o in os.getenv('CORS_ORIGINS', 'http://localhost:5173').split(',')]
+)
+# Google OAuth (lee de ENV)
+CLIENT_ID = os.getenv('CLIENT_ID', '')
+CLIENT_SECRET = os.getenv('CLIENT_SECRET', '')
+REDIRECT_URI = os.getenv('REDIRECT_URI', 'http://localhost:5001/oauth2callback')
+SCOPE = os.getenv('GOOGLE_SCOPE', 'https://www.googleapis.com/auth/calendar')
+# n8n webhook
+N8N_WEBHOOK_URL = os.getenv('N8N_WEBHOOK_URL', '')
+
+@app.get("/health")
+def health():
+    return {"ok": True}, 200
+# ---------------------------------------------------- Configuracion Render --------------------------------------------- #
 
 # In-memory user store (for demo only)
 users = {}
-
-# Configuration - replace these with your actual Google API credentials
-CLIENT_ID = '527754901009-al8b0eh401q66h99njl7sinfbqhi3b24.apps.googleusercontent.com'
-CLIENT_SECRET = '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'
-REDIRECT_URI = 'http://localhost:5001/oauth2callback'
-# Full access for creating and updating events
-SCOPE = 'https://www.googleapis.com/auth/calendar'
-N8N_WEBHOOK_URL = 'https://stable-distinctly-honeybee.ngrok-free.app/webhook-test/Google_Credentials'  # n8n webhook
-
+    
 # Helper: login required decorator
 def login_required(f):
     @wraps(f)
@@ -128,3 +154,4 @@ def oauth2callback():
 if __name__ == '__main__':
     # For local development only; configure production settings appropriately.
     app.run(debug=True, port=5001)
+    app.run(debug=True, port=port)
