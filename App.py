@@ -82,11 +82,7 @@ def auth_google():
 
 @app.route("/api/auth/google/callback", methods=["GET"])
 def auth_google_callback():
-    """
-    Callback: valida 'state', canjea el 'code' por tokens, obtiene perfil
-    y manda {profile, tokens} a n8n. Luego redirige al front.
-    """
-    # Validar estado
+    # 1) Validaciones rápidas (respuestas cortas, nunca 502)
     state = request.args.get("state")
     if not state or state != session.get("oauth_state"):
         return "Invalid state", 400
@@ -95,7 +91,7 @@ def auth_google_callback():
     if not code:
         return "Missing code", 400
 
-    # Intercambiar code por tokens
+    # 2) Intercambio de code por tokens (timeout corto)
     data = {
         "code": code,
         "client_id": CLIENT_ID,
@@ -103,35 +99,35 @@ def auth_google_callback():
         "redirect_uri": REDIRECT_URI,
         "grant_type": "authorization_code",
     }
-    token_res = requests.post(TOKEN_ENDPOINT, data=data, timeout=15)
-    if token_res.status_code != 200:
-        return f"Token exchange failed: {token_res.text}", 400
+    try:
+        token_res = requests.post(TOKEN_ENDPOINT, data=data, timeout=6)
+        token_res.raise_for_status()
+    except Exception as e:
+        # No colgarnos: devolver 502 explícito del backend con texto claro
+        return f"Token exchange failed: {e}", 502
 
-    tokens = token_res.json()  # {access_token, expires_in, refresh_token, scope, token_type}
+    tokens = token_res.json()
 
-    # Obtener perfil básico (email) con el access_token
+    # 3) Userinfo (timeout corto y no bloqueante si falla)
+    profile = {}
     try:
         headers = {"Authorization": f"Bearer {tokens['access_token']}"}
-        profile = requests.get(USERINFO, headers=headers, timeout=10).json()
+        profile = requests.get(USERINFO, headers=headers, timeout=4).json()
     except Exception as e:
         profile = {"error": f"userinfo_failed: {e}"}
 
-    # Enviar a n8n para que continues tu flujo (guardar tokens y operar calendario)
-    payload = {
-        "provider": "google",
-        "profile": profile,   # {id, email, ...}
-        "tokens": tokens,     # incluye refresh_token
-    }
+    # 4) Enviar a n8n sin bloquear (timeout corto)
+    payload = {"provider": "google", "profile": profile, "tokens": tokens}
     try:
-        r = requests.post(N8N_WEBHOOK_URL, json=payload, timeout=15)
-        r.raise_for_status()
+        # si prefieres "fire-and-forget", descomenta el hilo y comenta el post directo:
+        # import threading
+        # threading.Thread(target=lambda: requests.post(N8N_WEBHOOK_URL, json=payload, timeout=5)).start()
+        requests.post(N8N_WEBHOOK_URL, json=payload, timeout=5)
     except Exception as e:
-        # No bloqueamos al usuario si falla n8n; solo log
         print("Error posting to n8n:", e)
 
-    # Redirige de vuelta al front (puedes cambiar query param si quieres)
-    # OJO: usa tu dominio actual del front si cambias más adelante
-    return redirect("https://frontend-t6hj.onrender.com/?connected=google", code=302)  # :contentReference[oaicite:1]{index=1}
+    # 5) Responder de inmediato al usuario (evita 502 del proxy)
+    return redirect("https://frontend-t6hj.onrender.com/?connected=google", code=302)
 
 # -----------------------------------------------------------------------------
 # Entrypoint local (Render usa gunicorn "App:app")
