@@ -33,6 +33,10 @@ def auth_google():
     url = f"{AUTH_ENDPOINT}?{urllib.parse.urlencode(params)}"
     return redirect(url, code=302)
 
+@app.route("/health", methods=["GET", "HEAD"])
+def health():
+    return ("OK", 200)
+
 @app.route("/api/auth/google/callback")
 def auth_google_callback():
     # Validar estado
