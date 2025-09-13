@@ -1,130 +1,138 @@
-# app.py
-from flask import Flask, redirect, request, session, jsonify
-from flask_cors import CORS
-import requests
+# App.py
 import os
-from functools import wraps
+import secrets
+import urllib.parse
+import requests
 
+from flask import Flask, redirect, request, session, jsonify
+
+# -----------------------------------------------------------------------------
+# Config básica
+# -----------------------------------------------------------------------------
 app = Flask(__name__)
-CORS(app, supports_credentials=True, origins=[
-    "http://localhost:5173"
-])  # This enables CORS for all routes
 
-app.secret_key = '4ed3c88157a9b98d2c9b39976bcd94783191d4ff280055919cbaed94965f9a54'
+# SECRET_KEY para sesiones (state de OAuth); ideal setearla via env en Render
+app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
 
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_SECURE'] = False
+# Cookies de sesión seguras (estás en HTTPS en Render)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=True,
+)
 
-# In-memory user store (for demo only)
-users = {}
+# Helper para leer env vars con nombres alternativos
+def _getenv(*names, required=False, default=None):
+    for n in names:
+        v = os.getenv(n)
+        if v:
+            return v
+    if required:
+        raise RuntimeError(f"Missing required env var. Tried: {', '.join(names)}")
+    return default
 
-# Configuration - replace these with your actual Google API credentials
-CLIENT_ID = '527754901009-al8b0eh401q66h99njl7sinfbqhi3b24.apps.googleusercontent.com'
-CLIENT_SECRET = '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'
-REDIRECT_URI = 'http://localhost:5001/oauth2callback'
-# Full access for creating and updating events
-SCOPE = 'https://www.googleapis.com/auth/calendar'
-N8N_WEBHOOK_URL = 'https://stable-distinctly-honeybee.ngrok-free.app/webhook-test/Google_Credentials'  # n8n webhook
+# Variables de Google OAuth y n8n (acepta ambos esquemas de nombres)
+CLIENT_ID       = _getenv("CLIENT_ID", "GOOGLE_CLIENT_ID", required=True)
+CLIENT_SECRET   = _getenv("CLIENT_SECRET", "GOOGLE_CLIENT_SECRET", required=True)
+REDIRECT_URI    = _getenv("REDIRECT_URI", "OAUTH_REDIRECT_URI", required=True)
+N8N_WEBHOOK_URL = _getenv("N8N_WEBHOOK_URL", required=True)
+SCOPE           = _getenv("GOOGLE_SCOPE", default="https://www.googleapis.com/auth/calendar")
 
-# Helper: login required decorator
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user' not in session:
-            return jsonify({'error': 'Authentication required'}), 401
-        return f(*args, **kwargs)
-    return decorated_function
+# Endpoints de Google
+AUTH_ENDPOINT   = "https://accounts.google.com/o/oauth2/v2/auth"
+TOKEN_ENDPOINT  = "https://oauth2.googleapis.com/token"
+USERINFO        = "https://www.googleapis.com/oauth2/v2/userinfo"
 
-@app.route('/api/signup', methods=['POST'])
-def signup():
-    data = request.json
-    email = data.get('email')
-    password = data.get('password')
-    if not email or not password:
-        return jsonify({'error': 'Email and password required'}), 400
-    if email in users:
-        return jsonify({'error': 'User already exists'}), 400
-    users[email] = {'password': password}
-    return jsonify({'message': 'User created'})
+# -----------------------------------------------------------------------------
+# Rutas utilitarias
+# -----------------------------------------------------------------------------
+@app.route("/health", methods=["GET", "HEAD"])
+def health():
+    # Para el health check de Render
+    return ("OK", 200)
 
-@app.route('/api/login', methods=['POST'])
-def login():
-    data = request.json
-    email = data.get('email')
-    password = data.get('password')
-    user = users.get(email)
-    if not user or user['password'] != password:
-        return jsonify({'error': 'Invalid credentials'}), 401
-    session['user'] = email
-    return jsonify({'message': 'Logged in'})
-
-@app.route('/api/logout', methods=['POST'])
-def logout():
-    session.pop('user', None)
-    return jsonify({'message': 'Logged out'})
-
-@app.route('/api/status')
+@app.route("/api/status", methods=["GET"])
 def status():
-    user = session.get('user')
-    if user:
-        return jsonify({'authenticated': True, 'email': user})
-    return jsonify({'authenticated': False})
+    return jsonify({"ok": True})
 
-@app.route('/login')
-@login_required
-def google_login():
-    # Construct Google’s OAuth 2.0 authorization URL
-    auth_url = (
-        "https://accounts.google.com/o/oauth2/v2/auth"
-        "?response_type=code"
-        f"&client_id={CLIENT_ID}"
-        f"&redirect_uri={REDIRECT_URI}"
-        f"&scope={SCOPE}"
-        "&access_type=offline"  # to request refresh tokens too
-        "&prompt=consent"       # to always prompt the user for permission
-    )
-    return redirect(auth_url)
+# -----------------------------------------------------------------------------
+# OAuth Google
+# -----------------------------------------------------------------------------
+@app.route("/api/auth/google", methods=["GET"])
+def auth_google():
+    """
+    Inicia el flujo OAuth: genera 'state', construye la URL y redirige a Google.
+    """
+    # CSRF protection con state
+    state = secrets.token_urlsafe(24)
+    session["oauth_state"] = state
 
-@app.route('/oauth2callback')
-@login_required
-def oauth2callback():
-    error = request.args.get('error')
-    if error:
-        return f"Error encountered: {error}", 400
-
-    code = request.args.get('code')
-    if not code:
-        return "No authorization code provided.", 400
-
-    # Exchange the authorization code for tokens
-    token_url = 'https://oauth2.googleapis.com/token'
-    data = {
-        'code': code,
-        'client_id': CLIENT_ID,
-        'client_secret': CLIENT_SECRET,
-        'redirect_uri': REDIRECT_URI,
-        'grant_type': 'authorization_code'
+    params = {
+        "client_id": CLIENT_ID,
+        "redirect_uri": REDIRECT_URI,           # Debe coincidir con Google Console
+        "response_type": "code",
+        "scope": SCOPE,
+        "access_type": "offline",               # para refresh_token
+        "prompt": "consent",                    # fuerza refresh_token
+        "include_granted_scopes": "true",
+        "state": state,
     }
-    token_response = requests.post(token_url, data=data)
-    if token_response.status_code != 200:
-        return f"Failed to obtain tokens: {token_response.text}", 400
+    url = f"{AUTH_ENDPOINT}?{urllib.parse.urlencode(params)}"
+    return redirect(url, code=302)  # :contentReference[oaicite:0]{index=0}
 
-    token_data = token_response.json()
-    session['token_data'] = token_data  # Save tokens in session (or a database for production)
+@app.route("/api/auth/google/callback", methods=["GET"])
+def auth_google_callback():
+    # 1) Validaciones rápidas (respuestas cortas, nunca 502)
+    state = request.args.get("state")
+    if not state or state != session.get("oauth_state"):
+        return "Invalid state", 400
 
-    # Forward tokens to n8n webhook
-    webhook_response = requests.post(N8N_WEBHOOK_URL, json={
-        'user': session['user'],
-        'token_data': token_data
-    })
-    if webhook_response.status_code != 200:
-        return f"n8n webhook error: {webhook_response.text}", 400
+    code = request.args.get("code")
+    if not code:
+        return "Missing code", 400
 
-    return jsonify({
-        "message": "Google Calendar access granted and sent to n8n!",
-        "token_data": token_data
-    })
+    # 2) Intercambio de code por tokens (timeout corto)
+    data = {
+        "code": code,
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+        "redirect_uri": REDIRECT_URI,
+        "grant_type": "authorization_code",
+    }
+    try:
+        token_res = requests.post(TOKEN_ENDPOINT, data=data, timeout=6)
+        token_res.raise_for_status()
+    except Exception as e:
+        # No colgarnos: devolver 502 explícito del backend con texto claro
+        return f"Token exchange failed: {e}", 502
 
-if __name__ == '__main__':
-    # For local development only; configure production settings appropriately.
-    app.run(debug=True, port=5001)
+    tokens = token_res.json()
+
+    # 3) Userinfo (timeout corto y no bloqueante si falla)
+    profile = {}
+    try:
+        headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+        profile = requests.get(USERINFO, headers=headers, timeout=4).json()
+    except Exception as e:
+        profile = {"error": f"userinfo_failed: {e}"}
+
+    # 4) Enviar a n8n sin bloquear (timeout corto)
+    payload = {"provider": "google", "profile": profile, "tokens": tokens}
+    try:
+        # si prefieres "fire-and-forget", descomenta el hilo y comenta el post directo:
+        # import threading
+        # threading.Thread(target=lambda: requests.post(N8N_WEBHOOK_URL, json=payload, timeout=5)).start()
+        requests.post(N8N_WEBHOOK_URL, json=payload, timeout=5)
+    except Exception as e:
+        print("Error posting to n8n:", e)
+
+    # 5) Responder de inmediato al usuario (evita 502 del proxy)
+    return redirect("https://frontend-t6hj.onrender.com/?connected=google", code=302)
+
+# -----------------------------------------------------------------------------
+# Entrypoint local (Render usa gunicorn "App:app")
+# -----------------------------------------------------------------------------
+if __name__ == "__main__":
+    # Útil solo si corres localmente (python App.py)
+    port = int(os.getenv("PORT", "3000"))
+    app.run(host="0.0.0.0", port=port, debug=False)
