@@ -1,295 +1,182 @@
-# Schedulink Production Launch Checklist (Render)
+## Schedulink Production Launch Checklist
 
 Status Legend:
-- ✅ Complete (meets production requirement)
-- ⚠️ Pending / Required before launch
-- 📝 Optional / Nice-to-have (not launch‑blocking)
+- ✅ Complete (meets production requirement and enforced)
+- ⚠️ Pending (required before public launch / GA)
+- 📝 Optional (non‑blocking, post‑launch or nice‑to‑have)
 
-This document is the authoritative Go/No‑Go gate. Update the Generated date at bottom on each revision.
+This is the authoritative Go/No‑Go artifact. Update the Generated date on every revision. Items are written as objective, testable statements.
 
-Key File References:
-- Backend config schema: `backend/config/env.js`
-- Env example: `.env.example`
+Key References
+- Backend env schema: `backend/config/env.js`
+- Server implementation: `backend/server.js`
 - Render blueprint: `render.yaml`
-- CI workflow: `.github/workflows/deploy.yml`
+- CI pipeline: `.github/workflows/deploy.yml`
 - Security flag verifier: `scripts/verify-prod-flags.js`
-- Env sync tool: `scripts/render/set-env-from-file.js`
-- Rollback tool: `scripts/render/rollback.js`
-- Deploy docs: `docs/render-cli.md`
+- Env sync tooling: `docs/render-cli.md` & `scripts/render/*.js`
+- Example env: `.env.example` (backend) and `testapp/.env.example` (frontend)
+
+Staging vs Production Policy
+- Distinct OAuth clients must be used (staging may allow relaxed CSP, secret fingerprints for debugging). Production requires CSP_STRICT=true, PRINT_SECRET_FINGERPRINTS=false.
+- HSTS is only enabled (HSTS_ENABLED=true) after custom domain + TLS verification; staging keeps it false to avoid preload misconfiguration.
+- No environment may bypass Redis or Postgres in production or staging (guards in `env.js`). Emergency overrides (`ALLOW_INMEMORY_SESSION_IN_PROD`, `ALLOW_HEALTH_PASS_WITHOUT_REDIS`) are forbidden and blocked.
+
+Managed Service Provisioning
+- Redis: Standard/production plan (not free) required prior to launch for durable sessions + distributed rate limiting.
+- Postgres: Starter (or higher) plan already integrated; migrations applied via `scripts/db-migrate.js`.
+- Verify capacity headroom (CPU/memory < 70% at expected load) during staging soak test.
+
+First Deployment (Visibility-Only) – Minimal Priority Path
+1. Create Render services (API + Static Site) using `render.yaml` guidance.  
+2. Set minimal env vars (placeholders acceptable initially): CLIENT_ID, CLIENT_SECRET, REDIRECT_URI (Render backend URL + `/api/auth/google/callback`), FRONTEND_BASE_URL, SECRET_KEY, REFRESH_TOKEN_ENCRYPTION_KEY, N8N_WEBHOOK_URL (placeholder), DATABASE_URL, REDIS_URL.  
+3. Deploy; confirm `/api/health` returns ok and frontend loads root page.  
+4. Attempt Google login (expected pending until prod OAuth client finalization) → show graceful message.  
+5. Enable commit SHA log (already implemented) and capture in deployment output.  
+6. Open issues for each remaining ⚠️ item with owner + target date.  
+7. Create staging OAuth client & configure relaxed CSP (CSP_STRICT=false) before tightening prod.
 
 ---
+### Executive Snapshot
+Completed: OAuth PKCE flow & ID token verification, encryption & token rotation mechanics, session lifecycle (in‑memory + Redis support), PostgreSQL integration + health reporting, security headers + CSP/HSTS toggles, CSRF, CORS allow‑list, rate limiting (pre-distributed), audit logging with PII minimization, deletion request endpoints, calendar events CRUD with retry/backoff, admin session invalidation endpoint, anomaly (multi-IP) detection, commit SHA logging.
+Blocking Remaining: Redis-enforced session persistence (production instance), distributed rate limiter (Redis buckets), staging vs prod OAuth separation + finalized consent screen, persistence of legal acceptance & user configuration, centralized log sink/retention, support contact email confirmation, integration & core unit tests, domain + TLS + HSTS activation, review PII log redaction vs needs, finalize data deletion processing (actual purge/anonymization pass), environment documentation final polish.
 
-## 1. Compliance & Security (Highest Priority)
-| Status | Item | Notes / Action |
-|--------|------|----------------|
-| ✅ | OAuth Authorization Code + PKCE | Implemented; see `backend/server.js` routes `/api/auth/google*` |
-| ✅ | State parameter validation | Stored in short-lived cookie; verified on callback |
-| ✅ | ID token signature verification | JWKS fetch & verify implemented (see server) |
-| ✅ | Limited scopes | `GOOGLE_SCOPE` restricts scopes |
-| ✅ | Google branding compliance | UI uses correct button (manual visual audit) |
-| ⚠️ | Session store externalized (Redis) | In-memory only; requires Redis integration for prod resilience |
-| ✅ | Redis required in prod (guard) | `env.js` aborts without REDIS_URL when prod/staging |
-| ✅ | Token refresh logic | Proactive + `/api/auth/refresh` endpoint (audit events) |
-| ✅ | Refresh token encryption & rotation scaffolding | AES-256-GCM + previous key support |
-| ✅ | Session idle / absolute / rotation | Config vars: SESSION_* |
-| ⚠️ | Manual session invalidation endpoint | Add admin/API route to kill session by ID/token |
-| ⚠️ | Anomalous session detection | Add geo/IP fingerprint & heuristic logging |
-| ✅ | CSRF protection | Double submit/HMAC implemented (verify middleware) |
-| ✅ | CORS allow-list | Based on FRONTEND_BASE_URL + list; enforced in middleware |
-| ✅ | Basic rate limiting | In-memory buckets implemented |
-| ⚠️ | Distributed rate limiting | Implement Redis-backed counters (horizontal scale) |
-| ✅ | Security headers | CSP/HSTS (toggle), X-Frame-Options, etc. |
-| 📝 | CSP report endpoint | Add `/csp-report` + reporting-uri directive |
-| ⚠️ | ENFORCE_HTTPS=true in prod | Enforced by verifier; ensure Render env variable set |
-| ⚠️ | PRINT_SECRET_FINGERPRINTS=false in prod | Confirm production environment value; script verifies but env must set |
-| ⚠️ | HSTS_ENABLED true (after domain verified) | Enable post TLS + domain cutover |
-| ⚠️ | Central log aggregation | Choose stack (e.g. Render logs → Logtail/Datadog) |
-| ⚠️ | PII minimization in logs | Review current audit payloads; redact emails if not required |
-| ⚠️ | Commit SHA logging | Inject via env or read `git rev-parse HEAD` at startup |
-| 📝 | Rotation runbook in docs | Document key rotation flow & staging rehearsal |
-| ✅ | Secret validation (strength & placeholder rejection) | In `env.js` |
-| ✅ | Legal documents (Privacy/Terms) | Placeholders removed; versioned |
-| ⚠️ | Version acceptance persistence | Needs DB or durable store |
-| ⚠️ | Support/contact email live | Replace placeholder; verify deliverability |
-| ⚠️ | DPA / PHI scope evaluation | Determine if needed; add statement if out-of-scope |
-| ⚠️ | Data deletion request channel + SLA | Add policy section + endpoint/workflow |
+---
+## Section 1: Security & Compliance
+| Status | Item | Verification / Action |
+|--------|------|-----------------------|
+| ✅ | OAuth Authorization Code + PKCE implemented | `/api/auth/google` & callback with state + PKCE cookies |
+| ✅ | ID token signature & iss/aud validation | JWKS fetch + `jwt.verify` in server |
+| ✅ | Minimal scopes only (openid email profile calendar) | `CONFIG.GOOGLE_SCOPE` default examined |
+| ✅ | CSRF protection active | `/api/auth/csrf-token` + HMAC sid check on mutating logout |
+| ✅ | CORS allow‑list enforced | Dynamic origin set from `FRONTEND_BASE_URL` + additional list |
+| ✅ | Security headers & CSP toggles | Strict vs relaxed branch in middleware |
+| ✅ | HTTPS redirect (ENFORCE_HTTPS flag) implemented | Middleware checks `x-forwarded-proto` |
+| ✅ | HSTS scaffold | Header set when HSTS_ENABLED && (prod or enforce https) |
+| ✅ | Refresh token encryption (AES‑256‑GCM + key version) | `encrypt/decrypt` helpers with fingerprint prefixes |
+| ✅ | Session idle/absolute/rotation policy | Values from env; rotation logged |
+| ✅ | Token refresh (skew + explicit endpoint) | Automatic in `ensureSession`; manual `/api/auth/refresh` |
+| ✅ | Secret strength & placeholder rejection | Zod + validation in `env.js` |
+| ✅ | Production flag verifier script present | `verify-prod-flags.js` used in CI |
+| ✅ | Safe config logging + commit SHA | `[config] ...` + `[build] commit_sha` on startup |
+| ✅ | Multi-IP anomaly detection | `session.ipSet` threshold >3 triggers audit |
+| ✅ | Admin session invalidation endpoint | `/api/admin/sessions/invalidate` (API key protected) |
+| ✅ | Deletion request endpoints (create/process) | `/api/account/delete-request`, admin process route |
+| ✅ | Calendar events CRUD with retry/backoff | `/api/calendar/events*` using gApi wrapper |
+| ✅ | Audit logging with PII minimization | Redacts email unless `ALLOW_PII_LOGGING=true` |
+| ⚠️ | Enforce Redis-backed session store only | Ensure prod Redis provisioned; remove any emergency override usage |
+| ⚠️ | Distributed rate limiting (Redis) | Replace in-memory token buckets with Redis atomic ops (SET + LUA or INCR + TTL) |
+| ⚠️ | Persist legal acceptance to DB | Add columns update (already present? ensure values stored on accept) |
+| ⚠️ | Persist user configuration & preferences | Implement CRUD endpoints + migrations extension |
+| ⚠️ | Central log aggregation & retention policy | Select provider (Logtail/Datadog/ELK); document retention (>=30d) |
+| ⚠️ | Support/contact email functional | Verify `SUPPORT_CONTACT_EMAIL` inbox + link in UI footer |
+| ⚠️ | Privacy & Terms URLs deployed & referenced in consent screen | Host static pages + set in Google console |
+| ⚠️ | Data deletion actual purge/anonymization | Implement scheduled job or immediate purge of rows + tokens |
+| ⚠️ | Staging vs production OAuth clients separated | Create prod client; remove localhost/test origins from prod |
+| ⚠️ | HSTS enabled post domain verification | Toggle HSTS_ENABLED=true after DNS + TLS stable |
+| ⚠️ | PII logging policy review | Confirm redaction logic vs operational needs |
+| ⚠️ | DPA / PHI scope evaluation | Document “No PHI / medical data stored” if applicable |
+| 📝 | CSP report-only endpoint & aggregation | Add `/csp-report` route & report-to header |
+| 📝 | Key rotation runbook | Document rotation playbook & test in staging |
+| 📝 | Geo/IP heuristic enrichment | (Optional) Add geo lookup for anomaly events |
 
-## 2. Core Functionality
-| Status | Item | Notes / Action |
-|--------|------|----------------|
-| ⚠️ | Calendar CRUD (create/update/delete) | Only list implemented; expand API |
-| 📝 | Recurring events support | Document limitations if deferred |
-| ⚠️ | Time zone preference handling | Persist user TZ; normalize scheduling |
-| 📝 | Idempotency for event creation/update | Use idempotency-key header (nanoid) |
-| 📝 | Conflict detection | Use etag/updated timestamp vs stored version |
-| ⚠️ | Graceful Google error mapping | Map 4xx/5xx to user-friendly errors |
-| ⚠️ | Retry/backoff for transient Google errors | Exponential backoff wrapper |
-| ⚠️ | n8n webhook workflow validation | Add integration test verifying token usage |
-| 📝 | Signed inbound webhooks | HMAC signature if external callbacks added |
-| ⚠️ | n8n docs & env var list | Extend README / render-cli docs |
-| 📝 | Config UI (hours/buffer/reminders) | Frontend forms + backend persistence |
-| ⚠️ | Persist user configuration | Add Postgres schema / key-value store |
-| 📝 | Validation rules for settings | Enforce numeric ranges, overlap rules |
-| ⚠️ | Availability preview UI | Needed for scheduling clarity |
-| ⚠️ | Revoked scope handling | Detect API 401/insufficient permissions → re-auth prompt |
-| 📝 | Circuit breaker/backoff upstream | Protect against cascading failures |
+## Section 2: Core Application Functionality
+| Status | Item | Action |
+|--------|------|--------|
+| ✅ | Calendar list & events CRUD | Implemented with retries |
+| ⚠️ | Time zone persistence | Store user tz in config table; adjust API responses |
+| ⚠️ | Graceful upstream (Google) error mapping | Map status codes → user friendly codes JSON |
+| ⚠️ | Revoked scope handling | Detect 401 insufficient permissions → instruct re-auth |
+| 📝 | Recurring events support | Document limitation if deferred |
+| 📝 | Idempotency keys for event mutations | Accept `Idempotency-Key` header + Redis guard |
+| 📝 | Conflict detection (etag/updated) | Compare remote updated timestamp before PUT |
+| ⚠️ | n8n workflow validation test | Add integration test harness |
+| ⚠️ | Persist user configuration (availability, buffers) | Add endpoints + UI forms |
+| 📝 | Circuit breaker/backoff wrapper | Wrap gApi with failure counters |
+| 📝 | Signed inbound webhooks (future) | HMAC signature verification |
 
-## 3. Content & Localization
-| Status | Item | Notes |
-|--------|------|------|
-| ✅ | Spanish default / English optional | Implemented |
-| ⚠️ | Persist language preference | Cookie or user profile field |
-| ⚠️ | Audit for remaining English strings | Extraction pass needed |
-| ⚠️ | Externalize backend user-facing errors | Map to i18n keys |
-| ⚠️ | Language switch universal presence | Ensure on all pages (legal included) |
-| 📝 | Localized meta/title tags | Add per-route metadata |
-| ⚠️ | Translate system & rate-limit responses | i18n JSON entries required |
+## Section 3: Localization & Content
+| Status | Item | Action |
+|--------|------|--------|
+| ✅ | ES default / EN optional | Present |
+| ⚠️ | Persist language preference | Store in user_config or cookie |
+| ⚠️ | Externalize backend surfaced messages | Move to i18n map |
+| ⚠️ | Translate system & rate limit responses | Add keys to locales |
+| ⚠️ | Language switch everywhere (including legal) | Audit UI shells |
+| 📝 | Localized meta/OG tags | Add per route |
 
-## 4. Design & UX
-| Status | Item | Notes |
-|--------|------|------|
-| 📝 | Finalize brand palette & contrast audit | WCAG AA validation |
-| ⚠️ | Keyboard focus visibility | Add focus ring utilities |
-| ✅ | Skip-to-content link | Present |
-| ⚠️ | Heading hierarchy & ARIA landmarks | Audit semantics |
-| ⚠️ | Mobile responsive pass | Validate layouts on small screens |
-| 📝 | Empty states | Add placeholders for no events/config |
-| 📝 | Loading/skeleton states | Improve perceived performance |
-| 📝 | Onboarding checklist | Persist completion state later |
-| ⚠️ | Favicon & Open Graph metadata | Add to `testapp/index.html` & meta tags |
-| ⚠️ | Consistent footer/navigation across locales | Unify layout component |
+## Section 4: UX & Accessibility
+| Status | Item | Action |
+|--------|------|--------|
+| ✅ | Skip-to-content link | Implemented |
+| ⚠️ | Keyboard focus states consistent | Tailwind focus ring pass |
+| ⚠️ | Responsive layout audit | Mobile + tablet QA |
+| ⚠️ | Favicon & OG metadata | Add assets + `<meta>` tags |
+| ⚠️ | Consistent footer/navigation & support link | Include contact + legal links |
+| 📝 | Skeleton/loading states | Improve perceived latency |
+| 📝 | Onboarding checklist | Post-login guidance |
+| 📝 | Accessibility heading/ARIA audit | Document findings |
 
-## 5. Deployment on Render
-| Status | Item | Notes |
-|--------|------|------|
-| ✅ | Deployment model decided | Separate static + API (fallback unified) |
-| ✅ | Frontend build pipeline | `build` script; verified dist output |
-| ✅ | Static asset serving (unified mode) | SPA fallback + cache headers |
-| ✅ | Health endpoints `/api/health` & `/health` | Implemented & documented |
-| ✅ | Required core env vars set | Verified by `scripts/verify-env.js` |
-| ⚠️ | ENFORCE_HTTPS/CSP_STRICT/PRINT_SECRET_FINGERPRINTS prod values | Ensure environment values set (verifier & CI flag check) |
-| ⚠️ | Staging vs production separation | Distinct OAuth creds & relaxed CSP staging |
-| ⚠️ | JSON log format (no ANSI) | Confirm run-time output & disable color in prod |
-| ⚠️ | Domain + TLS + HSTS enablement | After custom domain binding |
+## Section 5: Deployment & Infrastructure (Render)
+| Status | Item | Verification / Action |
+|--------|------|-----------------------|
+| ✅ | Backend listens on `process.env.PORT` | `app.listen(port)` logic uses PORT fallback |
+| ✅ | Frontend build pipeline outputs `testapp/dist` | Vite build in CI + scripts |
+| ✅ | Health endpoints `/api/health` & `/health` | JSON status + dependency gating |
+| ✅ | PostgreSQL connectivity test on startup | `testDbConnection()` call logs result |
+| ✅ | Commit SHA logged | Added execSync rev-parse short hash |
+| ✅ | CI verifies security flags pre-deploy | `verify-prod-flags.js` step |
+| ✅ | Rollback & env sync scripts | `rollback.js`, `set-env-from-file.js` documented |
+| ✅ | Redis usage abstraction present | Session & rate limit helpers (needs enforcement) |
+| ⚠️ | Redis production instance provisioned | Provision & set REDIS_URL (Starter/Standard) |
+| ⚠️ | Distributed rate limiting via Redis | Replace Map buckets with atomic operations |
+| ⚠️ | JSON structured logs (no ANSI) in prod | Switch Morgan/console to plain / add flag |
+| ⚠️ | Domain + TLS + HSTS rollout | Add custom domain, test redirects, enable HSTS |
+| ⚠️ | Staging vs production env separation | Distinct OAuth creds + staging CSP_STRICT=false |
+| ⚠️ | Central log sink configured | Forward webhook or agent (Datadog/Logtail) |
+| ⚠️ | Support email displayed in UI footer | Add to frontend layout |
+| ⚠️ | Render health check path set to `/api/health` | Confirm blueprint & dashboard settings |
 | 📝 | Manual approval gate in CI | Add environment protection rule |
-| ✅ | Rollback tooling | `rollback.js` (branch-based) + docs |
-| ✅ | NPM cache strategy | actions/cache implemented |
-| ⚠️ | Plan upgrades (Starter / Redis / Postgres) | Provision managed services |
-| ⚠️ | Managed Redis for sessions & rate limit | Required for persistence & scale |
-| ⚠️ | Postgres for user config persistence | Needed for preferences/version acceptance |
-| ⚠️ | Update env vars list to include security flags | Ensure Render dashboard includes ENFORCE_HTTPS etc. |
-| ⚠️ | Confirm health check path configured in Render | Should point to `/api/health` |
-| 📝 | PR preview environments | Optional enhancement |
-| ⚠️ | Commit SHA logging on startup | Append to safe config log |
+| 📝 | Preview (PR) environments | Optional for feature QA |
 
-## 6. Testing & QA
-| Status | Item | Notes |
-|--------|------|------|
-| ⚠️ | Integration test: OAuth round-trip | Use Playwright/Cypress headless flow |
-| ⚠️ | Integration test: Calendar CRUD | After CRUD endpoints implemented |
-| ⚠️ | Test revoked scope re-auth | Simulate revocation then API call |
-| ⚠️ | Unit: session management | Cover idle/absolute/rotation edge cases |
-| ⚠️ | Unit: encryption & key rotation | Decrypt with previous key path |
-| ⚠️ | Unit: rate limiter edge cases | Burst exhaustion / refill timing |
-| ⚠️ | Unit: CSRF middleware | Valid/missing/invalid token cases |
-| ⚠️ | Localization key coverage test | Ensure no missing translations |
+## Section 6: Testing & QA
+| Status | Item | Action / Notes |
+|--------|------|----------------|
+| ⚠️ | Integration: OAuth login flow | Headless browser test (Playwright) |
+| ⚠️ | Integration: Calendar event lifecycle | Create/read/update/delete test harness |
+| ⚠️ | Unit: session lifecycle edge cases | Idle, absolute, rotation coverage |
+| ⚠️ | Unit: encryption/rotation | Decrypt with previous key path |
+| ⚠️ | Unit: rate limiting | Refill timing, burst exhaustion, Redis path |
+| ⚠️ | Unit: CSRF middleware | Valid vs missing vs invalid token |
+| ⚠️ | Unit: localization keys presence | Detect missing translations |
 | ⚠️ | Vulnerability scan in CI | Add `npm audit --production` / Snyk step |
-| 📝 | Basic load test | k6 or autocannon scenario |
-| 📝 | Pen test checklist | Manual / 3rd party pass |
-| ⚠️ | Pre-deploy script prints commit SHA | Extend verify script or startup log |
-| ✅ | GitHub Actions CI: lint + test + build | Implemented workflow with caching |
+| ⚠️ | Pre-deploy script asserts commit SHA & flags | Extend or reuse existing scripts |
+| 📝 | Load test (baseline) | k6 or autocannon scenario |
+| 📝 | Pen test checklist | Manual header & injection audit |
 
-## 7. Future Expansion (Lower Priority)
-(Unchanged; reference for roadmap — treat all as 📝 unless escalated.)
+## Section 7: Data Protection / Privacy
+| Status | Item | Action |
+|--------|------|--------|
+| ✅ | Deletion request capture | Table + endpoints exist |
+| ⚠️ | Actual data purge / anonymization process | Implement deletion job + audit record |
+| ⚠️ | Support response SLA defined | Document (e.g. <5 business days) |
+| ⚠️ | Policy version acceptance persisted | Write acceptance to users table columns |
+| ⚠️ | Log retention + purge policy | Document (e.g. 30d app logs) |
+| 📝 | Data export (user self-service) | Future capability |
 
-## 8. Immediate Action Summary (Go/No-Go Blockers)
-The following ⚠️ items are mandatory before production launch:
-1. Redis integration for sessions + distributed rate limiting.
-2. Enable and verify production security flags (ENFORCE_HTTPS, CSP_STRICT, PRINT_SECRET_FINGERPRINTS=false, HSTS_ENABLED once domain live).
-3. Manual session invalidation endpoint.
-4. Calendar CRUD + error handling & retry/backoff.
-5. Commit SHA logging & PII minimization review.
-6. Staging environment with distinct OAuth credentials.
-7. Centralized log aggregation target & retention policy.
-8. Support/contact email + data deletion request channel.
-9. Integration tests (OAuth + initial CRUD) & critical unit tests (sessions, encryption, CSRF, rate limit).
-10. Domain/TLS configuration & confirm health check path on Render.
+## Section 8: Immediate Blockers (Must Resolve Before Public Launch)
+1. Provision & enforce Redis session store (remove any in-memory allowance) and implement Redis-backed distributed rate limiting.
+2. Persist legal acceptance + user configuration to Postgres (and migrate existing sessions if needed).
+3. Staging vs production OAuth separation, finalize consent screen (logo, support email, privacy & terms URLs live).
+4. Centralized log aggregation + retention policy finalized; verify PII redaction.
+5. Domain + TLS + enable HSTS after verification.
+6. Integration tests (OAuth & calendar CRUD) + core unit tests (session, encryption, CSRF, rate limit) in CI.
+7. Implement actual deletion purge/anonymization and document SLA + retention policies.
+8. Add support/contact email to UI footer + verify inbox deliverability.
+9. Time zone + revoked scope handling + graceful Google error mapping.
+10. Complete distributed rate limiting & review security flag values in production environment.
 
-## 9. Optional / Post-Launch Priorities (📝)
-- CSP report endpoint, webhook signing, advanced observability, feature flags, PR previews, load & pen tests, onboarding polish, UI accessibility refinements.
+## Section 9: Optional / Post-Launch
+Non-blocking improvement backlog: CSP report endpoint, key rotation runbook, advanced observability (tracing/metrics), recurring events, conflict detection, idempotency keys, webhook signing, PR preview envs, skeleton states, onboarding UX, load & pen tests, data export, geo anomaly enrichment.
 
----
-Generated: 2025-09-27 (update this date when checklist status changes).
+Generated: 2025-09-27
 
-## 2. Core Functionality
-- [~] Calendar API: only list implemented; add CRUD (create/update/delete events)
-- [ ] Support recurring events (document limitations if skipped)
-- [ ] Time zone preference handling & conversion
-- [ ] Idempotency keys for event creation/update
-- [ ] Conflict detection on update (etag or lastModified comparison)
-- [ ] Graceful Google API error mapping (user-friendly messages)
-- [ ] Retry/backoff for transient Google errors
-- [~] n8n webhook forward working (validate workflows consume tokens correctly)
-- [ ] Signed callbacks or secret validation for inbound n8n/webhooks (if added)
-- [ ] Document n8n workflow expectations and env vars
-- [ ] Configuration UI: business hours
-- [ ] Configuration UI: buffer times
-- [ ] Configuration UI: reminder offsets
-- [ ] Persist user configuration (DB schema or key-value store)
-- [ ] Validation rules for schedule settings (no overlap, valid ranges)
-- [ ] Availability preview UI
-- [ ] Graceful handling of revoked Google scope mid-session (re-auth prompt)
-- [ ] Circuit breaker / temporary backoff for upstream rate limiting
-
-## 3. Content & Localization
-- [x] Spanish default / English optional
-- [ ] Persist language preference across sessions (cookie or server side)
-- [ ] Audit for remaining hard-coded English strings
-- [ ] Externalize backend error messages into translation keys (where exposed to UI)
-- [ ] Language switch presence on all pages (verify legal pages)
-- [ ] Localized meta/title tags per route
-- [ ] Translate system error & rate limit responses surfaced to UI
-
-## 4. Design & UX
-- [~] Modern Tailwind styling; finalize brand palette & contrast audit (WCAG AA)
-- [ ] Keyboard focus visibility for all interactive elements
-- [x] Add skip-to-content link for accessibility
-- [ ] Verify heading hierarchy & ARIA landmarks
-- [ ] Mobile responsive pass (dashboard, legal pages, long lists)
-- [ ] Empty states (no events/config yet)
-- [ ] Loading/skeleton states for session fetch & calendar operations
-- [~] Onboarding checklist after first login (client-side placeholder)
-- [ ] Favicon & Open Graph / social preview metadata
-- [ ] Consistent footer/navigation across locales
-
-## 5. Deployment on Render
- - [x] Decide deployment model (serve frontend from backend or separate static site)
- 	- Default decision: Separate Static Site on Render for CDN + cache efficiency
- 	- Fallback unified mode supported via SERVE_STATIC=true (serves ../testapp/dist with SPA fallback)
- 	- STATIC_ROOT override supported; index.html set no-cache; other assets cache 1h
- 	- Render config: Web Service runs API only; Static Site handles frontend (/* -> index.html)
-- [x] Production build pipeline (npm ci && npm run build for frontend) before start
- 	- Root build script executes Vite build (testapp/dist produced)
- 	- prestart hook verify:frontend-build ensures dist exists; auto-build if SERVE_STATIC=true and missing
- 	- Verified: npm start (SERVE_STATIC=true) performed verification and launched API
- 	- Follow-up (optional): add "type": "module" at root to remove Node ESM warning
-- [x] Serve built assets (if unified service) or configure static site fallback routing
- 	- Unified mode: SERVE_STATIC=true serves testapp/dist (verified root / and /dashboard return index.html)
- 	- SPA fallback implemented (non-/api paths -> index.html)
- 	- index.html Cache-Control: no-cache (via explicit header logic); static assets 1h cache
- 	- Separate static site path: configure Render Static Site fallback /* -> /index.html (documentation pending)
-- [x] Health endpoint /api/health
- - [x] Configure Render health check path & alerting
- 	- /api/health returns 200 (ok:true) or 503 when Redis required but disconnected
- 	- Includes uptime, timestamp, redis status (required/connected/lastError)
- 	- Validation: scenarios tested (no Redis required vs required & unreachable => 503)
- 	- Render setup: set health check path to /api/health; alert policy: 2 consecutive failures (degrade) / 5 (critical)
- 	- Optional override ALLOW_HEALTH_PASS_WITHOUT_REDIS for maintenance windows
-- [x] Set required env vars in Render (CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SECRET_KEY, REFRESH_TOKEN_ENCRYPTION_KEY, FRONTEND_BASE_URL, N8N_WEBHOOK_URL)
- 	- Added scripts/verify-env.js executed in prestart (fails fast on missing/placeholder)
- 	- Validates length of SECRET_KEY & REFRESH_TOKEN_ENCRYPTION_KEY (>=32)
- 	- Tested: missing vars => startup blocked; populated vars => startup succeeds
- 	- Placeholder patterns (dummy/changeme/placeholder/insecure) rejected
- 	- Render action: add all variables in dashboard + mark SECRET_KEY separate from REFRESH_TOKEN_ENCRYPTION_KEY
-- [ ] ENFORCE_HTTPS=true, CSP_STRICT=true, PRINT_SECRET_FINGERPRINTS=false (prod)
-- [ ] Add environment separation (staging vs production) with distinct OAuth credentials
-- [ ] Logging: ensure JSON uncolored output in production
-- [ ] Domain + TLS configuration (custom domain, HSTS after validation)
-- [ ] Automated deployment workflow with manual approval gate
-- [ ] Rollback procedure documented (tags/releases)
-- [ ] .npmrc or caching strategy for faster builds
- - [x] Render Web Service: Node.js LTS (build: "npm ci && npm run build"; start: "npm run start")
- 	- Root scripts added (build delegates to testapp build; start runs backend/server.js)
- 	- Successful local production build validated (vite output in testapp/dist)
- 	- Add "type": "module" root consideration (warning observed) – optional follow-up
- - [ ] Render Plan: Use Starter plan for production web service (avoid free tier for OAuth)
- - [ ] Managed Redis (Standard plan) for session persistence & distributed rate limiting
- - [ ] Static Site (if frontend separated) with fallback routing (/* -> index.html)
- - [ ] Postgres (Starter plan) for user configuration persistence
- - [ ] Configure env vars on Render (CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SECRET_KEY, REFRESH_TOKEN_ENCRYPTION_KEY, FRONTEND_BASE_URL, N8N_WEBHOOK_URL, ENFORCE_HTTPS, CSP_STRICT, PRINT_SECRET_FINGERPRINTS)
- - [ ] Render health check path set to /api/health with alerting thresholds
- - [ ] Custom domain + TLS (Let's Encrypt) configured; enable HSTS post validation
- - [ ] JSON log format confirmed (no ANSI colors) in Render environment
- - [ ] GitHub repo connected with auto deploy on main branch
- - [ ] Rollback procedure executable (tags/releases) – verify Render rollback steps
- - [ ] PR preview environments enabled (optional)
-
-## 6. Testing & QA
-- [ ] Integration test: OAuth round-trip (Playwright/Cypress)
-- [ ] Integration test: Calendar CRUD (mock or sandbox project)
-- [ ] Test: revoked scope triggers re-auth flow
-- [ ] Unit: session management (idle/absolute/rotation)
-- [ ] Unit: encryption & key rotation decrypt path
-- [ ] Unit: rate limiter edge cases
-- [ ] Unit: CSRF middleware (valid / missing / invalid token)
-- [ ] Localization key coverage test (no missing keys ES/EN)
-- [ ] Vulnerability scan (npm audit / Snyk) integrated into CI
-- [ ] Basic load test (auth + calendar endpoints)
-- [ ] Pen test checklist execution (headers, redirects, error disclosure)
-- [ ] Pre-deploy script verifies env + builds + prints commit SHA
-- [ ] GitHub Actions CI: lint + test + build
-
-## 7. Future Expansion (Lower Priority)
-- [ ] Redis/Postgres session & config persistence
-- [ ] Feature flags framework
-- [ ] WhatsApp integration (Meta Cloud API scaffolding)
-- [ ] Telegram / SMS channel placeholders
-- [ ] Webhook event ingestion & signature validation
-- [ ] Background job queue (BullMQ / worker dyno)
-- [ ] Observability stack (tracing + metrics)
-- [ ] Data export & deletion API
-- [ ] Admin support panel with audit controls
-- [ ] Policy version changelog (public)
-
-## 8. Execution Order (Recommended)
-1. Finalize legal + replace placeholders (critical blocker)
-2. Externalize sessions & rate limiting (Redis), enforce HTTPS, tighten prod env flags
-3. Implement calendar CRUD + config UI (core value prop)
-4. Build out tests & CI pipeline
-5. Deployment hardening (logging, rollback, staging separation)
-6. Localization persistence & accessibility polish
-7. n8n workflow robustness & idempotency
-8. Scale & observability enhancements
-
----
-Generated: 2025-09-22 (update this date when checklist status changes).

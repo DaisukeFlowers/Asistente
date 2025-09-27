@@ -3,6 +3,7 @@ import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import morgan from 'morgan';
+import { execSync } from 'child_process';
 import crypto from 'crypto';
 import axios from 'axios';
 import cookieParser from 'cookie-parser';
@@ -10,6 +11,7 @@ import jwt from 'jsonwebtoken';
 import { nanoid } from 'nanoid';
 import https from 'https';
 import Redis from 'ioredis';
+import pool, { testDbConnection } from './config/db.js';
 import CONFIG from './config/env.js';
 
 // Session cookie constant
@@ -21,6 +23,10 @@ CONFIG.SESSION_COOKIE_NAME = 'calassist_sid';
 // -----------------------------------------------------------------------------
 if (process.env.NODE_ENV === 'production' && !CONFIG.REDIS_URL && process.env.ALLOW_INMEMORY_SESSION_IN_PROD !== 'true') {
   throw new Error('REDIS_URL is required in production for persistent sessions & distributed rate limiting. Set ALLOW_INMEMORY_SESSION_IN_PROD=true only as a temporary emergency override.');
+}
+// Production guard: require DATABASE_URL (handled earlier in db.js but double-check here for clarity)
+if (process.env.NODE_ENV === 'production' && !process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL is required in production for persistence (user config, legal acceptance, etc).');
 }
 
 // Secret validation & fingerprinting centralized in config/env.js now.
@@ -118,6 +124,12 @@ function audit(event, fields = {}) {
     // Avoid accidental secrets leakage: scrub potential token fields explicitly
     if (record.access_token) record.access_token = '[REDACTED]';
     if (record.refresh_token) record.refresh_token = '[REDACTED]';
+    // PII minimization: remove raw emails unless explicitly permitted
+    if (!CONFIG.ALLOW_PII_LOGGING && record.email) record.email = '[REDACTED_EMAIL]';
+    // Forward log optionally
+    if (CONFIG.LOG_FORWARD_WEBHOOK) {
+      axios.post(CONFIG.LOG_FORWARD_WEBHOOK, record).catch(()=>{});
+    }
     console.log(JSON.stringify(record));
   } catch (e) {
     console.error('audit_log_failure', e.message);
@@ -237,6 +249,7 @@ app.use((req, res, next) => {
   const rid = crypto.randomBytes(8).toString('hex');
   req.rid = rid;
   res.setHeader('X-Request-Id', rid);
+  req.requestIp = req.ip;
   const start = Date.now();
   res.on('finish', () => {
     audit('http_request', {
@@ -245,7 +258,7 @@ app.use((req, res, next) => {
       path: req.path,
       status: res.statusCode,
       dur_ms: Date.now() - start,
-      ip: req.ip,
+      ip: req.requestIp,
       ua: req.headers['user-agent']
     });
   });
@@ -280,6 +293,8 @@ if (CONFIG.RATE_LIMIT_ENABLED) {
     const bucket = classify(req);
     if (!bucket) return next();
     const ip = req.ip;
+    // Use user-based key if session cookie present (defer lookup cost by raw cookie id)
+    const rawSid = req.cookies?.[CONFIG.SESSION_COOKIE_NAME];
     let capacity, refillPerSec;
     if (bucket === 'auth') {
       capacity = CONFIG.RATE_LIMIT_AUTH_BURST;
@@ -288,7 +303,12 @@ if (CONFIG.RATE_LIMIT_ENABLED) {
       capacity = CONFIG.RATE_LIMIT_API_BURST;
       refillPerSec = CONFIG.RATE_LIMIT_API_REFILL_PER_MINUTE / 60;
     }
-    const key = `${bucket}:${ip}`;
+    let key = `${bucket}:ip:${ip}`;
+    if (rawSid) {
+      // Associate session->user sub if existing in cache quickly
+      const cached = await sessionGet(rawSid);
+      if (cached?.user?.sub) key = `${bucket}:user:${cached.user.sub}`;
+    }
     let allowed = true;
     try {
       allowed = await take(key, capacity, refillPerSec);
@@ -297,7 +317,7 @@ if (CONFIG.RATE_LIMIT_ENABLED) {
     }
     if (!allowed) {
       res.setHeader('Retry-After', '10'); // coarse hint
-      audit('rate_limit_exceeded', { rid: req.rid, bucket, ip, path: req.path });
+      audit('rate_limit_exceeded', { rid: req.rid, bucket, key, path: req.path });
       return res.status(429).json({ error: 'rate_limited', retry_after: 10 });
     }
     next();
@@ -441,16 +461,24 @@ function rsaPublicKeyDer(modulusB64Url, exponentB64Url) {
 // Returns 503 when Redis is configured but not connected (unless override set)
 // -----------------------------------------------------------------------------
 // Provide /health alias for platform health checks (maps to /api/health logic)
-app.get(['/api/health', '/health'], (req,res) => {
+app.get(['/api/health', '/health'], async (req,res) => {
   const requireRedis = !!CONFIG.REDIS_URL && process.env.ALLOW_HEALTH_PASS_WITHOUT_REDIS !== 'true';
-  const ok = !requireRedis || redisStatus.connected;
+  const redisOk = !requireRedis || redisStatus.connected;
+  let db = { configured: !!process.env.DATABASE_URL, status: null, error: null };
+  if (process.env.DATABASE_URL) {
+    const r = await testDbConnection();
+    db.status = r.ok ? 'ok' : 'error';
+    if (!r.ok) db.error = r.error;
+  }
+  const overallOk = redisOk && (db.status !== 'error');
   const body = {
-    ok,
+    ok: overallOk,
     uptime_s: Math.round(process.uptime()),
     ts: new Date().toISOString(),
-    redis: CONFIG.REDIS_URL ? { required: requireRedis, connected: redisStatus.connected, lastError: redisStatus.lastError } : { required: false, connected: null }
+    redis: CONFIG.REDIS_URL ? { required: requireRedis, connected: redisStatus.connected, lastError: redisStatus.lastError } : { required: false, connected: null },
+    db
   };
-  if (!ok) return res.status(503).json(body);
+  if (!overallOk) return res.status(503).json(body);
   res.json(body);
 });
 
@@ -535,7 +563,17 @@ app.get('/api/auth/google/callback', async (req, res) => {
       profile = profRes.data;
     } catch {/* ignore fallback to payload */}
 
-    // Persist session (in-memory). Replace with DB + user table mapping.
+    // Persist user in DB (upsert) & session (Redis)
+    if (pool) {
+      try {
+        await pool.query(
+          `INSERT INTO users (google_sub,email,name,picture,privacy_version,terms_version)
+           VALUES ($1,$2,$3,$4,NULL,NULL)
+           ON CONFLICT (google_sub) DO UPDATE SET email=EXCLUDED.email, name=EXCLUDED.name, picture=EXCLUDED.picture, updated_at=now()`,
+           [profile.sub, profile.email, profile.name, profile.picture]
+        );
+      } catch (e) { console.error('user_upsert_failed', e.message); }
+    }
     const sessionId = nanoid(32);
     await sessionSet(sessionId, {
       user: profile,
@@ -549,7 +587,8 @@ app.get('/api/auth/google/callback', async (req, res) => {
       createdAt: Date.now(),
       lastAccess: Date.now(),
       csrfSecret: crypto.randomBytes(16).toString('hex'),
-      accepted: { privacyVersion: null, termsVersion: null }
+      accepted: { privacyVersion: null, termsVersion: null },
+      ipSet: [req.requestIp]
     });
 
     res.cookie(CONFIG.SESSION_COOKIE_NAME, sessionId, cookieOpts);
@@ -673,6 +712,18 @@ app.use((err, _req, res, _next) => {
 const port = process.env.BACKEND_PORT || process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`Backend listening on :${port}`);
+  if (pool) {
+    testDbConnection().then(r => {
+      if (r.ok) console.log('Connected to PostgreSQL');
+      else console.error('PostgreSQL connection failed:', r.error);
+    });
+  } else {
+    console.log('PostgreSQL not configured (DATABASE_URL missing)');
+  }
+  try {
+    const sha = execSync('git rev-parse --short HEAD').toString().trim();
+    console.log('[build] commit_sha', sha);
+  } catch {/* ignore in container without git */}
 });
 
 // ---------------------------------------------------------------------------
@@ -691,6 +742,17 @@ async function ensureSession(req, res) {
     res.status(401).json({ authenticated: false });
     audit('session_invalid', { reason: 'unknown_sid' });
     return null;
+  }
+  // Anomaly detection: multiple distinct IPs exceeding threshold
+  if (session.ipSet) {
+    if (!session.ipSet.includes(req.requestIp)) {
+      session.ipSet.push(req.requestIp);
+      if (session.ipSet.length > 3) {
+        audit('session_anomaly_multi_ip', { sid_hash: hashSid(sid), ip_count: session.ipSet.length });
+      }
+    }
+  } else {
+    session.ipSet = [req.requestIp];
   }
   // Absolute timeout
   if (session.createdAt + SESSION_ABSOLUTE_MAX_MS < now) {
@@ -816,5 +878,126 @@ app.post('/api/auth/refresh', async (req,res) => {
       return res.status(401).json({ error: 're_auth_required' });
     }
     res.status(502).json({ error: 'refresh_failed' });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Admin: Manual session invalidation
+// ---------------------------------------------------------------------------
+app.post('/api/admin/sessions/invalidate', async (req,res) => {
+  if (!CONFIG.ADMIN_API_KEY || req.headers['x-admin-key'] !== CONFIG.ADMIN_API_KEY) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  const { sid, sub } = req.body || {};
+  let count = 0;
+  if (sid) {
+    await sessionDel(sid); count = 1;
+  } else if (sub && redis) {
+    // Scan keys (bounded) for user sub (lightweight pattern). For large scale, maintain index.
+    const stream = redis.scanStream({ match: `${CONFIG.REDIS_NAMESPACE}:sess:*`, count: 100 });
+    for await (const keys of stream) {
+      for (const k of keys) {
+        const raw = await redis.get(k);
+        if (raw && JSON.parse(raw)?.user?.sub === sub) { await redis.del(k); count++; }
+      }
+    }
+  } else {
+    return res.status(400).json({ error: 'sid_or_sub_required' });
+  }
+  audit('admin_session_invalidate', { sid_hash: sid ? hashSid(sid) : null, sub, count });
+  res.json({ ok: true, invalidated: count });
+});
+
+// ---------------------------------------------------------------------------
+// Deletion request workflow (user initiated)
+// ---------------------------------------------------------------------------
+app.post('/api/account/delete-request', async (req,res) => {
+  const result = await ensureSession(req,res); if (!result) return;
+  const { session } = result;
+  if (!pool) return res.status(503).json({ error: 'db_unavailable' });
+  try {
+    const userRes = await pool.query('SELECT id FROM users WHERE google_sub=$1', [session.user.sub]);
+    if (!userRes.rows.length) return res.status(404).json({ error: 'user_not_found' });
+    const userId = userRes.rows[0].id;
+    await pool.query('INSERT INTO deletion_requests(user_id) VALUES($1)', [userId]);
+    audit('deletion_request_created', { sub: session.user.sub });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(500).json({ error: 'request_failed' });
+  }
+});
+
+// Admin process deletion (mark processed)
+app.post('/api/admin/deletion-requests/:id/process', async (req,res) => {
+  if (!CONFIG.ADMIN_API_KEY || req.headers['x-admin-key'] !== CONFIG.ADMIN_API_KEY) return res.status(401).json({ error: 'unauthorized' });
+  if (!pool) return res.status(503).json({ error: 'db_unavailable' });
+  const id = req.params.id;
+  try {
+    await pool.query('UPDATE deletion_requests SET status=\'processed\', processed_at=now() WHERE id=$1', [id]);
+    audit('deletion_request_processed', { id });
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: 'process_failed' }); }
+});
+
+// ---------------------------------------------------------------------------
+// Calendar Events CRUD (Google Calendar API proxy) with retry/backoff
+// ---------------------------------------------------------------------------
+async function gApi(session, method, url, data) {
+  const headers = { Authorization: `Bearer ${session.tokens.access_token}` };
+  const max = 3;
+  for (let attempt=1; attempt<=max; attempt++) {
+    try {
+      const res = await axios({ method, url, data, headers, timeout: 8000 });
+      return res.data;
+    } catch (e) {
+      const status = e.response?.status;
+      if (attempt < max && (status === 429 || (status >=500 && status <=599))) {
+        await new Promise(r=>setTimeout(r, 300 * attempt));
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
+const GCAL_BASE = 'https://www.googleapis.com/calendar/v3/calendars/primary/events';
+app.post('/api/calendar/events', async (req,res) => {
+  const result = await ensureSession(req,res); if (!result) return;
+  try {
+    const data = await gApi(result.session, 'post', GCAL_BASE, req.body);
+    audit('calendar_event_create', { rid: req.rid });
+    res.status(201).json(data);
+  } catch (e) {
+    audit('calendar_event_create_failed', { rid: req.rid, error: e.response?.status });
+    res.status(502).json({ error: 'event_create_failed' });
+  }
+});
+app.get('/api/calendar/events/:id', async (req,res) => {
+  const result = await ensureSession(req,res); if (!result) return;
+  try {
+    const data = await gApi(result.session, 'get', `${GCAL_BASE}/${req.params.id}`);
+    res.json(data);
+  } catch (e) {
+    res.status(e.response?.status === 404 ? 404 : 502).json({ error: e.response?.status === 404 ? 'not_found' : 'event_fetch_failed' });
+  }
+});
+app.put('/api/calendar/events/:id', async (req,res) => {
+  const result = await ensureSession(req,res); if (!result) return;
+  try {
+    const data = await gApi(result.session, 'put', `${GCAL_BASE}/${req.params.id}`, req.body);
+    audit('calendar_event_update', { rid: req.rid });
+    res.json(data);
+  } catch (e) {
+    res.status(502).json({ error: 'event_update_failed' });
+  }
+});
+app.delete('/api/calendar/events/:id', async (req,res) => {
+  const result = await ensureSession(req,res); if (!result) return;
+  try {
+    await gApi(result.session, 'delete', `${GCAL_BASE}/${req.params.id}`);
+    audit('calendar_event_delete', { rid: req.rid });
+    res.json({ ok: true });
+  } catch (e) {
+    res.status(502).json({ error: 'event_delete_failed' });
   }
 });

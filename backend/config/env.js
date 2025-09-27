@@ -24,6 +24,10 @@ const schema = z.object({
   FRONTEND_BASE_URL: z.string().optional(),
   N8N_WEBHOOK_URL: z.string().min(1, 'N8N_WEBHOOK_URL required'),
   REDIS_URL: z.string().optional(),
+  ADMIN_API_KEY: z.string().optional(),
+  SUPPORT_CONTACT_EMAIL: z.string().optional(),
+  LOG_FORWARD_WEBHOOK: z.string().optional(),
+  DATABASE_URL: z.string().optional(),
 
   // Security / policy toggles
   ENFORCE_HTTPS: bool(true),
@@ -32,6 +36,7 @@ const schema = z.object({
   HSTS_ENABLED: bool(true),
   CSRF_PROTECTION_ENABLED: bool(true),
   SECURITY_HEADERS_ENABLED: bool(true),
+  ALLOW_PII_LOGGING: bool(false),
 
   // Optional / feature flags
   AUDIT_LOG_ENABLED: bool(true),
@@ -96,6 +101,7 @@ if (isStaging) {
 if (isProd || isStaging) {
   const fail = [];
   if (!parsed.REDIS_URL) fail.push('REDIS_URL required in ' + (isProd ? 'production' : 'staging'));
+  if (!parsed.DATABASE_URL) fail.push('DATABASE_URL required in ' + (isProd ? 'production' : 'staging'));
   if (!parsed.ENFORCE_HTTPS) fail.push('ENFORCE_HTTPS must be true in ' + (isProd ? 'production' : 'staging'));
   if (isProd && !parsed.CSP_STRICT) fail.push('CSP_STRICT must be true in production');
   if (isProd && parsed.PRINT_SECRET_FINGERPRINTS) fail.push('PRINT_SECRET_FINGERPRINTS must be false in production');
@@ -127,6 +133,10 @@ export const CONFIG = {
   FRONTEND_BASE_URL: parsed.FRONTEND_BASE_URL,
   N8N_WEBHOOK_URL: parsed.N8N_WEBHOOK_URL,
   REDIS_URL: parsed.REDIS_URL || '',
+  ADMIN_API_KEY: parsed.ADMIN_API_KEY || '',
+  SUPPORT_CONTACT_EMAIL: parsed.SUPPORT_CONTACT_EMAIL || '',
+  LOG_FORWARD_WEBHOOK: parsed.LOG_FORWARD_WEBHOOK || '',
+  DATABASE_URL: parsed.DATABASE_URL || '',
   REDIS_NAMESPACE: parsed.REDIS_NAMESPACE,
   GOOGLE_SCOPE: parsed.GOOGLE_SCOPE,
   ENFORCE_HTTPS: parsed.ENFORCE_HTTPS,
@@ -135,6 +145,7 @@ export const CONFIG = {
   HSTS_ENABLED: parsed.HSTS_ENABLED,
   CSRF_PROTECTION_ENABLED: parsed.CSRF_PROTECTION_ENABLED,
   SECURITY_HEADERS_ENABLED: parsed.SECURITY_HEADERS_ENABLED,
+  ALLOW_PII_LOGGING: parsed.ALLOW_PII_LOGGING,
   AUDIT_LOG_ENABLED: parsed.AUDIT_LOG_ENABLED,
   RATE_LIMIT_ENABLED: parsed.RATE_LIMIT_ENABLED,
   RATE_LIMIT_AUTH_BURST: parsed.RATE_LIMIT_AUTH_BURST,
@@ -167,6 +178,7 @@ function logSafeConfig() {
     rate_limit_enabled: CONFIG.RATE_LIMIT_ENABLED,
     frontend_base_url: CONFIG.FRONTEND_BASE_URL,
     redis_present: !!CONFIG.REDIS_URL,
+  db_present: !!CONFIG.DATABASE_URL,
     print_secret_fingerprints: CONFIG.PRINT_SECRET_FINGERPRINTS,
     session_idle_min: CONFIG.SESSION_IDLE_MAX_MINUTES,
     session_absolute_h: CONFIG.SESSION_ABSOLUTE_MAX_HOURS,

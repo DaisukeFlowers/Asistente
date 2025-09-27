@@ -110,6 +110,29 @@ npm --prefix backend run test:watch
 ```
 
 ### Commit-Based Rollback
+### PostgreSQL Configuration
+Set `DATABASE_URL` in the Render dashboard (Backend Web Service → Environment) using the Internal URL provided by Render:
+
+Internal (preferred inside same region network):
+```
+postgresql://schedulink_data_user:********@dpg-d3c3fammcj7s73d7rc9g-a/schedulink_data
+```
+
+Local development or external connections can use the external hostname variant (replace password):
+```
+postgresql://schedulink_data_user:replace_with_password@dpg-d3c3fammcj7s73d7rc9g-a.oregon-postgres.render.com/schedulink_data
+```
+
+Example placeholder added to `.env.example` (never commit real password). The backend will:
+- Fail fast in production if `DATABASE_URL` missing.
+- Log a safe message `Connected to PostgreSQL` on successful startup test.
+- Expose DB status in `/api/health` (fields: `db.status` = ok|error).
+
+Quick connectivity test locally:
+```bash
+DATABASE_URL=postgresql://... npm run db:test
+```
+
 Use the rollback script with a commit SHA to create and push a temporary branch and trigger a deploy:
 ```bash
 RENDER_API_KEY=... node scripts/render/rollback.js --service schedulink-api --commit <commit-sha>

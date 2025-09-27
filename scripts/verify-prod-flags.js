@@ -9,14 +9,19 @@ const REQUIRED = {
   PRINT_SECRET_FINGERPRINTS: 'false',
   HSTS_ENABLED: 'true',
   CSRF_PROTECTION_ENABLED: 'true',
-  SECURITY_HEADERS_ENABLED: 'true'
+  SECURITY_HEADERS_ENABLED: 'true',
+  DATABASE_URL: 'present'
 };
 
 function main() {
   const failures = [];
   for (const [k, expected] of Object.entries(REQUIRED)) {
     const actual = process.env[k];
-    if (actual !== expected) failures.push(`${k} expected=${expected} actual=${actual === undefined ? '(missing)' : actual}`);
+    if (expected === 'present') {
+      if (!actual) failures.push(`${k} expected to be set (non-empty) but is missing`);
+    } else if (actual !== expected) {
+      failures.push(`${k} expected=${expected} actual=${actual === undefined ? '(missing)' : actual}`);
+    }
   }
   if (failures.length) {
     console.error('Production security flag validation FAILED:');

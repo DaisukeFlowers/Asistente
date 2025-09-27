@@ -17,7 +17,8 @@
     "render:env:api": "node scripts/render/set-env-from-file.js --service schedulink-api --file .env.render.api",
     "render:env:app": "node scripts/render/set-env-from-file.js --service schedulink-app --file .env.render.app",
     "render:rollback:api": "node scripts/render/rollback.js --service schedulink-api --list",
-    "render:rollback:app": "node scripts/render/rollback.js --service schedulink-app --list"
+    "render:rollback:app": "node scripts/render/rollback.js --service schedulink-app --list",
+    "db:test": "node scripts/test-db.js"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.21",
@@ -34,6 +35,7 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "nanoid": "^5.0.7",
-    "zod": "^3.25.76"
+    "zod": "^3.25.76",
+    "pg": "^8.12.0"
   }
 }
