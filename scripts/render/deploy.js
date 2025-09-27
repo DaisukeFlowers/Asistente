@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { renderFetch } from './helpers.js';
+import { listServices, triggerDeploy } from './api.js';
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -12,19 +12,7 @@ function parseArgs() {
   return opts;
 }
 
-async function resolveServiceMap() {
-  const data = await renderFetch('/services');
-  // API returns array of objects with shape { service: {...} } for blueprints.
-  return data.map(item => item.service || item);
-}
-
-async function trigger(serviceId) {
-  const resp = await renderFetch(`/services/${serviceId}/deploys`, {
-    method: 'POST',
-    body: JSON.stringify({ clearCache: false })
-  });
-  return resp;
-}
+async function resolveServiceMap() { return listServices(); }
 
 async function main() {
   const opts = parseArgs();
@@ -44,7 +32,7 @@ async function main() {
       process.exit(1);
     }
     for (const svc of targets) {
-      const res = await trigger(svc.id);
+  const res = await triggerDeploy(svc.id);
       console.log(`Triggered deploy: ${svc.name} -> deployId=${res.id}`);
     }
   } catch (e) {

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadEnvFile } from './helpers.js';
+import fs from 'fs';
 import { listServices, getEnvVars, patchEnvVar, createEnvVars } from './api.js';
 
 function parseArgs() {
@@ -12,28 +12,39 @@ function parseArgs() {
     else if (a === '--no-create') opts.allowCreate = false;
   }
   if (!opts.file || !opts.service) {
-    console.error('Usage: update-env --service <name> --file <envFile>');
+    console.error('Usage: set-env-from-file --service <name> --file <envFile>');
     process.exit(1);
   }
   return opts;
 }
 
-
-function redact(key) {
-  if (/(SECRET|KEY|TOKEN|PASSWORD)/i.test(key)) return '[redacted]';
-  return key;
+function loadEnv(path) {
+  const content = fs.readFileSync(path, 'utf8');
+  const vars = {};
+  content.split(/\r?\n/).forEach(line => {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) return;
+    const idx = t.indexOf('=');
+    if (idx === -1) return;
+    const key = t.slice(0, idx).trim();
+    const value = t.slice(idx+1).trim();
+    if (key) vars[key] = value;
+  });
+  return vars;
 }
+
+function shouldRedact(key) { return /(SECRET|TOKEN|KEY|PASSWORD)/i.test(key); }
 
 async function main() {
   const opts = parseArgs();
-  const vars = loadEnvFile(opts.file);
+  const vars = loadEnv(opts.file);
   const services = await listServices();
   const svc = services.find(s => s.name === opts.service);
   if (!svc) {
     console.error('Service not found:', opts.service);
     process.exit(1);
   }
-  const existing = await getEnvVars(svc.id); // [{ id, key, value, ... }]
+  const existing = await getEnvVars(svc.id);
   const existingMap = new Map(existing.map(e => [e.key, e]));
   const toCreate = [];
   const toUpdate = [];
@@ -45,16 +56,19 @@ async function main() {
     }
   }
   if (toCreate.length) {
-  await createEnvVars(svc.id, toCreate);
-    console.log('Created:', toCreate.map(c => c.key).join(', '));
+    await createEnvVars(svc.id, toCreate);
+    console.log('Created:', toCreate.map(v => v.key).join(', '));
   }
   for (const item of toUpdate) {
-  await patchEnvVar(svc.id, item.id, item.value);
+    await patchEnvVar(svc.id, item.id, item.value);
     console.log(`Updated: ${item.key}`);
   }
-  if (!toCreate.length && !toUpdate.length) {
-    console.log('No changes needed.');
-  }
-  console.log(`Synced env vars to service ${opts.service} (${svc.id}).`);
+  console.log(`Synced ${opts.service}. Summary:`);
+  console.log('  Created:', toCreate.length);
+  console.log('  Updated:', toUpdate.length);
+  console.log('  Skipped:', Object.keys(vars).length - toCreate.length - toUpdate.length);
+  Object.keys(vars).forEach(k => {
+    console.log(`  ${k}=${shouldRedact(k) ? '[redacted]' : vars[k]}`);
+  });
 }
 main();

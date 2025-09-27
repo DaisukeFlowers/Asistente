@@ -440,7 +440,8 @@ function rsaPublicKeyDer(modulusB64Url, exponentB64Url) {
 // Health endpoint: liveness + basic readiness (Redis if required)
 // Returns 503 when Redis is configured but not connected (unless override set)
 // -----------------------------------------------------------------------------
-app.get('/api/health', (req,res) => {
+// Provide /health alias for platform health checks (maps to /api/health logic)
+app.get(['/api/health', '/health'], (req,res) => {
   const requireRedis = !!CONFIG.REDIS_URL && process.env.ALLOW_HEALTH_PASS_WITHOUT_REDIS !== 'true';
   const ok = !requireRedis || redisStatus.connected;
   const body = {

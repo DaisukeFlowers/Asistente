@@ -40,6 +40,13 @@ ENV/
 # Keep example files
 !.env.example
 !.env.staging.example
+!.env.deployment.example
+
+# Render deployment local env files
+.env.deployment.local
+.env.render.api
+.env.render.app
+.env.production.sync
 
 # IDE
 .vscode/

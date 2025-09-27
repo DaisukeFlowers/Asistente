@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-import { renderFetch } from './helpers.js';
+import { listServices } from './api.js';
 
 async function main() {
   try {
-    const services = await renderFetch('/services');
+    const services = await listServices();
     services.forEach(s => {
-      console.log(`${s.id}\t${s.service.name || s.name}\t${s.service.type || s.type}\t${s.service.slug || ''}`);
+      console.log(`${s.id}\t${s.name}\t${s.type}`);
     });
   } catch (e) {
     console.error('Failed to list services:', e.message);
