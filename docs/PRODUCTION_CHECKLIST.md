@@ -1,52 +1,165 @@
 # Schedulink Production Launch Checklist (Render)
 
-Status legend: [ ] Pending · [~] In Progress / Partial · [x] Done · [!] Critical Blocker
+Status Legend:
+- ✅ Complete (meets production requirement)
+- ⚠️ Pending / Required before launch
+- 📝 Optional / Nice-to-have (not launch‑blocking)
+
+This document is the authoritative Go/No‑Go gate. Update the Generated date at bottom on each revision.
+
+Key File References:
+- Backend config schema: `backend/config/env.js`
+- Env example: `.env.example`
+- Render blueprint: `render.yaml`
+- CI workflow: `.github/workflows/deploy.yml`
+- Security flag verifier: `scripts/verify-prod-flags.js`
+- Env sync tool: `scripts/render/set-env-from-file.js`
+- Rollback tool: `scripts/render/rollback.js`
+- Deploy docs: `docs/render-cli.md`
+
+---
 
 ## 1. Compliance & Security (Highest Priority)
-- [x] OAuth Authorization Code with PKCE (S256) implemented
-- [x] State parameter validation
-- [x] ID token signature verification via Google JWKS
-- [x] Limited scopes (openid, email, profile, calendar)
-- [x] Confirm official Google Identity branding/button usage in UI
-- [~] Session store: in-memory (replace with Redis in production for persistence & scaling)
-- [x] Enforce Redis in production (guard added; test & verified)
-	- Verified: starting with NODE_ENV=production and no REDIS_URL aborts with explicit error
-	- Verified: providing REDIS_URL proceeds (logs connection errors if Redis unreachable, which is acceptable for startup but should be monitored)
-- [x] Document re-auth/token refresh flow (graceful refresh vs forced login)
- 	- Implemented automatic proactive refresh inside ensureSession when remaining lifetime < ACCESS_TOKEN_REFRESH_SKEW_SECONDS (default 60s)
- 	- Added /api/auth/refresh endpoint for explicit client-initiated refresh
- 	- On invalid_grant (revoked/expired refresh token) session is terminated & client receives re_auth_required to force clean login
- 	- Audit events: token_refresh_success / token_refresh_failed / token_refresh_forced_success / token_refresh_forced_failed
- 	- Configurable skew: ACCESS_TOKEN_REFRESH_SKEW_SECONDS env var
-- [x] Refresh token encryption (AES-256-GCM) + key rotation support
-- [x] Session idle + absolute timeouts & rotation
-- [ ] Add manual session invalidation endpoint (security incident response)
-- [ ] Anomalous session pattern detection (geo/IP variance)
-- [x] CSRF protection for POST routes
-- [x] CORS allow-list enforced (FRONTEND_BASE_URL + explicit origins)
-- [x] Rate limiting (auth vs general buckets)
-- [ ] Redis-backed distributed rate limiting (horizontal scale)
-- [x] Security headers (CSP, X-Frame-Options, etc.)
-- [x] Optional HSTS (enabled when prod HTTPS stable)
-- [ ] CSP report endpoint (violation telemetry)
-- [ ] Ensure ENFORCE_HTTPS=true in production environment
-- [x] Structured audit logging (JSON events)
-- [ ] Central log aggregation / retention policy
-- [ ] PII minimization pass on logs (remove any non-essential fields)
-- [ ] Build provenance: log commit SHA on startup
-- [x] Secret validation & fingerprinting
-- [ ] Disable PRINT_SECRET_FINGERPRINTS in production
-- [ ] Add rotation runbook examples to docs
-- [x] Bilingual Privacy Policy draft with version/date
-- [x] Bilingual Terms of Service draft with version/date
-- [x] Replace all legal placeholders with counsel-approved text
- - [x] Build gate added to fail if placeholders remain (scripts/check-legal.js)
- - [x] Add controller (legal entity) identification section (baseline filled)
- - [x] Add policy change notification mechanism (initial indicator; suppressed on baseline final pages)
- - [~] Version acceptance tracking (session-based; needs persistent user storage later)
-- [ ] Ensure support/contact email is live (replace placeholder domain)
-- [ ] Evaluate need for DPA / disclaim PHI if out of scope
-- [ ] Data deletion request channel + documented SLA
+| Status | Item | Notes / Action |
+|--------|------|----------------|
+| ✅ | OAuth Authorization Code + PKCE | Implemented; see `backend/server.js` routes `/api/auth/google*` |
+| ✅ | State parameter validation | Stored in short-lived cookie; verified on callback |
+| ✅ | ID token signature verification | JWKS fetch & verify implemented (see server) |
+| ✅ | Limited scopes | `GOOGLE_SCOPE` restricts scopes |
+| ✅ | Google branding compliance | UI uses correct button (manual visual audit) |
+| ⚠️ | Session store externalized (Redis) | In-memory only; requires Redis integration for prod resilience |
+| ✅ | Redis required in prod (guard) | `env.js` aborts without REDIS_URL when prod/staging |
+| ✅ | Token refresh logic | Proactive + `/api/auth/refresh` endpoint (audit events) |
+| ✅ | Refresh token encryption & rotation scaffolding | AES-256-GCM + previous key support |
+| ✅ | Session idle / absolute / rotation | Config vars: SESSION_* |
+| ⚠️ | Manual session invalidation endpoint | Add admin/API route to kill session by ID/token |
+| ⚠️ | Anomalous session detection | Add geo/IP fingerprint & heuristic logging |
+| ✅ | CSRF protection | Double submit/HMAC implemented (verify middleware) |
+| ✅ | CORS allow-list | Based on FRONTEND_BASE_URL + list; enforced in middleware |
+| ✅ | Basic rate limiting | In-memory buckets implemented |
+| ⚠️ | Distributed rate limiting | Implement Redis-backed counters (horizontal scale) |
+| ✅ | Security headers | CSP/HSTS (toggle), X-Frame-Options, etc. |
+| 📝 | CSP report endpoint | Add `/csp-report` + reporting-uri directive |
+| ⚠️ | ENFORCE_HTTPS=true in prod | Enforced by verifier; ensure Render env variable set |
+| ⚠️ | PRINT_SECRET_FINGERPRINTS=false in prod | Confirm production environment value; script verifies but env must set |
+| ⚠️ | HSTS_ENABLED true (after domain verified) | Enable post TLS + domain cutover |
+| ⚠️ | Central log aggregation | Choose stack (e.g. Render logs → Logtail/Datadog) |
+| ⚠️ | PII minimization in logs | Review current audit payloads; redact emails if not required |
+| ⚠️ | Commit SHA logging | Inject via env or read `git rev-parse HEAD` at startup |
+| 📝 | Rotation runbook in docs | Document key rotation flow & staging rehearsal |
+| ✅ | Secret validation (strength & placeholder rejection) | In `env.js` |
+| ✅ | Legal documents (Privacy/Terms) | Placeholders removed; versioned |
+| ⚠️ | Version acceptance persistence | Needs DB or durable store |
+| ⚠️ | Support/contact email live | Replace placeholder; verify deliverability |
+| ⚠️ | DPA / PHI scope evaluation | Determine if needed; add statement if out-of-scope |
+| ⚠️ | Data deletion request channel + SLA | Add policy section + endpoint/workflow |
+
+## 2. Core Functionality
+| Status | Item | Notes / Action |
+|--------|------|----------------|
+| ⚠️ | Calendar CRUD (create/update/delete) | Only list implemented; expand API |
+| 📝 | Recurring events support | Document limitations if deferred |
+| ⚠️ | Time zone preference handling | Persist user TZ; normalize scheduling |
+| 📝 | Idempotency for event creation/update | Use idempotency-key header (nanoid) |
+| 📝 | Conflict detection | Use etag/updated timestamp vs stored version |
+| ⚠️ | Graceful Google error mapping | Map 4xx/5xx to user-friendly errors |
+| ⚠️ | Retry/backoff for transient Google errors | Exponential backoff wrapper |
+| ⚠️ | n8n webhook workflow validation | Add integration test verifying token usage |
+| 📝 | Signed inbound webhooks | HMAC signature if external callbacks added |
+| ⚠️ | n8n docs & env var list | Extend README / render-cli docs |
+| 📝 | Config UI (hours/buffer/reminders) | Frontend forms + backend persistence |
+| ⚠️ | Persist user configuration | Add Postgres schema / key-value store |
+| 📝 | Validation rules for settings | Enforce numeric ranges, overlap rules |
+| ⚠️ | Availability preview UI | Needed for scheduling clarity |
+| ⚠️ | Revoked scope handling | Detect API 401/insufficient permissions → re-auth prompt |
+| 📝 | Circuit breaker/backoff upstream | Protect against cascading failures |
+
+## 3. Content & Localization
+| Status | Item | Notes |
+|--------|------|------|
+| ✅ | Spanish default / English optional | Implemented |
+| ⚠️ | Persist language preference | Cookie or user profile field |
+| ⚠️ | Audit for remaining English strings | Extraction pass needed |
+| ⚠️ | Externalize backend user-facing errors | Map to i18n keys |
+| ⚠️ | Language switch universal presence | Ensure on all pages (legal included) |
+| 📝 | Localized meta/title tags | Add per-route metadata |
+| ⚠️ | Translate system & rate-limit responses | i18n JSON entries required |
+
+## 4. Design & UX
+| Status | Item | Notes |
+|--------|------|------|
+| 📝 | Finalize brand palette & contrast audit | WCAG AA validation |
+| ⚠️ | Keyboard focus visibility | Add focus ring utilities |
+| ✅ | Skip-to-content link | Present |
+| ⚠️ | Heading hierarchy & ARIA landmarks | Audit semantics |
+| ⚠️ | Mobile responsive pass | Validate layouts on small screens |
+| 📝 | Empty states | Add placeholders for no events/config |
+| 📝 | Loading/skeleton states | Improve perceived performance |
+| 📝 | Onboarding checklist | Persist completion state later |
+| ⚠️ | Favicon & Open Graph metadata | Add to `testapp/index.html` & meta tags |
+| ⚠️ | Consistent footer/navigation across locales | Unify layout component |
+
+## 5. Deployment on Render
+| Status | Item | Notes |
+|--------|------|------|
+| ✅ | Deployment model decided | Separate static + API (fallback unified) |
+| ✅ | Frontend build pipeline | `build` script; verified dist output |
+| ✅ | Static asset serving (unified mode) | SPA fallback + cache headers |
+| ✅ | Health endpoints `/api/health` & `/health` | Implemented & documented |
+| ✅ | Required core env vars set | Verified by `scripts/verify-env.js` |
+| ⚠️ | ENFORCE_HTTPS/CSP_STRICT/PRINT_SECRET_FINGERPRINTS prod values | Ensure environment values set (verifier & CI flag check) |
+| ⚠️ | Staging vs production separation | Distinct OAuth creds & relaxed CSP staging |
+| ⚠️ | JSON log format (no ANSI) | Confirm run-time output & disable color in prod |
+| ⚠️ | Domain + TLS + HSTS enablement | After custom domain binding |
+| 📝 | Manual approval gate in CI | Add environment protection rule |
+| ✅ | Rollback tooling | `rollback.js` (branch-based) + docs |
+| ✅ | NPM cache strategy | actions/cache implemented |
+| ⚠️ | Plan upgrades (Starter / Redis / Postgres) | Provision managed services |
+| ⚠️ | Managed Redis for sessions & rate limit | Required for persistence & scale |
+| ⚠️ | Postgres for user config persistence | Needed for preferences/version acceptance |
+| ⚠️ | Update env vars list to include security flags | Ensure Render dashboard includes ENFORCE_HTTPS etc. |
+| ⚠️ | Confirm health check path configured in Render | Should point to `/api/health` |
+| 📝 | PR preview environments | Optional enhancement |
+| ⚠️ | Commit SHA logging on startup | Append to safe config log |
+
+## 6. Testing & QA
+| Status | Item | Notes |
+|--------|------|------|
+| ⚠️ | Integration test: OAuth round-trip | Use Playwright/Cypress headless flow |
+| ⚠️ | Integration test: Calendar CRUD | After CRUD endpoints implemented |
+| ⚠️ | Test revoked scope re-auth | Simulate revocation then API call |
+| ⚠️ | Unit: session management | Cover idle/absolute/rotation edge cases |
+| ⚠️ | Unit: encryption & key rotation | Decrypt with previous key path |
+| ⚠️ | Unit: rate limiter edge cases | Burst exhaustion / refill timing |
+| ⚠️ | Unit: CSRF middleware | Valid/missing/invalid token cases |
+| ⚠️ | Localization key coverage test | Ensure no missing translations |
+| ⚠️ | Vulnerability scan in CI | Add `npm audit --production` / Snyk step |
+| 📝 | Basic load test | k6 or autocannon scenario |
+| 📝 | Pen test checklist | Manual / 3rd party pass |
+| ⚠️ | Pre-deploy script prints commit SHA | Extend verify script or startup log |
+| ✅ | GitHub Actions CI: lint + test + build | Implemented workflow with caching |
+
+## 7. Future Expansion (Lower Priority)
+(Unchanged; reference for roadmap — treat all as 📝 unless escalated.)
+
+## 8. Immediate Action Summary (Go/No-Go Blockers)
+The following ⚠️ items are mandatory before production launch:
+1. Redis integration for sessions + distributed rate limiting.
+2. Enable and verify production security flags (ENFORCE_HTTPS, CSP_STRICT, PRINT_SECRET_FINGERPRINTS=false, HSTS_ENABLED once domain live).
+3. Manual session invalidation endpoint.
+4. Calendar CRUD + error handling & retry/backoff.
+5. Commit SHA logging & PII minimization review.
+6. Staging environment with distinct OAuth credentials.
+7. Centralized log aggregation target & retention policy.
+8. Support/contact email + data deletion request channel.
+9. Integration tests (OAuth + initial CRUD) & critical unit tests (sessions, encryption, CSRF, rate limit).
+10. Domain/TLS configuration & confirm health check path on Render.
+
+## 9. Optional / Post-Launch Priorities (📝)
+- CSP report endpoint, webhook signing, advanced observability, feature flags, PR previews, load & pen tests, onboarding polish, UI accessibility refinements.
+
+---
+Generated: 2025-09-27 (update this date when checklist status changes).
 
 ## 2. Core Functionality
 - [~] Calendar API: only list implemented; add CRUD (create/update/delete events)
