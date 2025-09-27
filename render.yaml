@@ -1,0 +1,47 @@
+services:
+  - name: schedulink-api
+    type: web
+    env: node
+    plan: starter
+    # Using repository root so existing root scripts (build, prestart, start) function.
+    # (Instruction example used ASISTENTE/, actual backend lives in ./backend/)
+    rootDir: .
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    autoDeploy: true
+    healthCheckPath: /api/health
+    # Example (non-secret) environment variables; real secrets managed via Render dashboard.
+    envVars:
+      - key: ENFORCE_HTTPS
+        value: "true"
+      - key: CSP_STRICT
+        value: "true"
+      - key: PRINT_SECRET_FINGERPRINTS
+        value: "false"
+      - key: SECURITY_HEADERS_ENABLED
+        value: "true"
+      - key: CSRF_PROTECTION_ENABLED
+        value: "true"
+      - key: RATE_LIMIT_ENABLED
+        value: "true"
+      - key: SESSION_IDLE_MAX_MINUTES
+        value: "30"
+      - key: SESSION_ABSOLUTE_MAX_HOURS
+        value: "24"
+      - key: SESSION_ROTATE_MINUTES
+        value: "15"
+      - key: ACCESS_TOKEN_REFRESH_SKEW_SECONDS
+        value: "60"
+      # Secrets like CLIENT_SECRET, SECRET_KEY, REFRESH_TOKEN_ENCRYPTION_KEY, REDIS_URL, N8N_WEBHOOK_URL
+      # must be added in the dashboard or via API (not stored here).
+
+  - name: schedulink-app
+    type: static
+    rootDir: testapp
+    buildCommand: npm ci && npm run build
+    publishPath: dist
+    autoDeploy: true
+    envVars:
+      - key: VITE_GOOGLE_CLIENT_ID
+        value: "placeholder"
+    # Additional public-only VITE_* variables can be added via dashboard as needed.

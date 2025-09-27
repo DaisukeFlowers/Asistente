@@ -9,7 +9,12 @@
     "build": "npm --prefix testapp run build",
     "verify:env": "node scripts/verify-env.js",
     "prestart": "npm run verify:env && npm run verify:frontend-build",
-    "start": "node backend/server.js"
+    "start": "node backend/server.js",
+    "render:services": "node scripts/render/list-services.js",
+    "render:deploy": "node scripts/render/deploy.js --all",
+    "render:deploy:api": "node scripts/render/deploy.js --name schedulink-api",
+    "render:deploy:app": "node scripts/render/deploy.js --name schedulink-app",
+    "render:env:sync": "node scripts/render/update-env.js --service schedulink-api --file .env.production.sync"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.21",
