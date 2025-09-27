@@ -1,0 +1,22 @@
+{
+  "name": "schedulink-root",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "postinstall": "npm --prefix testapp install --no-audit --no-fund",
+    "verify:frontend-build": "node scripts/verify-frontend-build.js",
+    "build": "npm --prefix testapp run build",
+    "verify:env": "node scripts/verify-env.js",
+    "prestart": "npm run verify:env && npm run verify:frontend-build",
+    "start": "node backend/server.js"
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.13"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1"
+  }
+}

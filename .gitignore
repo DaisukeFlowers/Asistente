@@ -28,7 +28,18 @@ venv/
 env/
 ENV/
 .venv/
-.env/
+.env
+.env.*.local
+.env.staging.local
+.env.development.local
+.env.production
+.env.production.local
+.env.test.local
+.env.staging
+.env.development
+# Keep example files
+!.env.example
+!.env.staging.example
 
 # IDE
 .vscode/

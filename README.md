@@ -1,6 +1,6 @@
-# Virtual Assistant - Google Calendar Integration
+# Schedulink Backend (Node/Express) – Environment & Deployment
 
-A web application for onboarding clients to connect their Google Calendar to your virtual assistant via n8n automation.
+Backend service providing secure Google OAuth (Authorization Code + PKCE), session management, token refresh, and forwarding to n8n workflows.
 
 ## 🚀 Features
 
@@ -17,34 +17,30 @@ A web application for onboarding clients to connect their Google Calendar to you
 - Google Cloud Console project with Calendar API enabled
 - n8n instance with webhook endpoint
 
-## 🛠️ Setup Instructions
+## 🛠️ Quick Start (Development)
 
-### 1. Clone the Repository
-
+Clone & install:
 ```bash
-git clone <your-repo-url>
-cd webapp
+git clone <repo>
+cd Asistente
+npm install            # installs backend deps + triggers frontend postinstall
 ```
 
-### 2. Backend Setup (Flask)
-
-#### Install Python Dependencies
-
+Create local env file from example:
 ```bash
-pip install -r requirements.txt
+cp .env.example .env.development.local
+# edit values (leave prod/staging secrets out of repo)
 ```
 
-#### Configure Google OAuth (Already Configured)
+Run backend (dev auto-reload optional via backend package scripts):
+```bash
+npm run start
+```
 
-The app is pre-configured with Google OAuth credentials. If you need to change them:
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com/)
-2. Create a new project or select existing one
-3. Enable the Google Calendar API
-4. Create OAuth 2.0 credentials:
-   - Application type: Web application
-   - Authorized redirect URIs: `http://localhost:5000/oauth2callback`
-5. Update `App.py` with your credentials
+Run frontend (in parallel):
+```bash
+cd testapp && npm run dev
+```
 
 #### n8n Webhook (Already Configured)
 
@@ -53,15 +49,15 @@ The app is pre-configured with the n8n webhook URL. To change it, update:
 N8N_WEBHOOK_URL = 'your-new-webhook-url'
 ```
 
-## 🚦 Running the Application
+## � Environment Strategy
 
-### Start the Backend
+Backend uses a centralized Zod schema (`backend/config/env.js`). Load order:
+1. `.env.development.local` (if NODE_ENV=development)
+2. Render / process environment for staging & production (no file load in prod)
 
-```bash
-python App.py
-```
+Staging: set `NODE_ENV=staging`; requires full core variables (mirrors prod but allows relaxed CSP / fingerprints).
 
-The Flask server will start on `http://localhost:5000`
+Never commit real secrets – only `.env.example` and `.env.staging.example` remain tracked.
 
 ## 📡 API Endpoints
 
@@ -141,9 +137,10 @@ curl -X GET http://localhost:5000/api/status -b cookies.txt
 
 ### Security Notes
 
-- App runs with hardcoded credentials (suitable for private repo)
-- Uses secure session configuration
-- CORS enabled for `http://localhost:5173` (React development)
+- Authorization Code + PKCE; refresh tokens encrypted (AES-256-GCM) with key rotation support.
+- Sessions rotate & enforce idle/absolute timeouts.
+- CSP strict in production; staging may run relaxed (`CSP_STRICT=false`).
+- HTTPS, HSTS enforced in production when TLS validated.
 
 ## 🐛 Troubleshooting
 
@@ -170,15 +167,26 @@ User -> React Frontend -> Flask Backend -> Google OAuth -> Google Calendar API
                                n8n Webhook -> Virtual Assistant
 ```
 
-## 🔮 Next Steps
+## � Migration (Env File Cleanup)
 
-- [ ] Create React frontend
-- [ ] Add database for user persistence  
-- [ ] Implement proper password hashing
-- [ ] Add email verification
-- [ ] Create user dashboard
-- [ ] Add calendar event management
-- [ ] Deploy to production
+Removed legacy templates: `.env.production.example`, `.env.original.example` (duplicated / outdated). Use `.env.example` (backend) + `testapp/.env.example` (frontend). Create per‑environment local overrides:
+
+Backend:
+```
+.env.development.local
+.env.staging.local (optional for local staging simulation)
+# Production via Render dashboard only
+```
+
+Frontend (Vite – only public vars):
+```
+testapp/.env.development.local
+testapp/.env.staging.local
+```
+
+All custom variables consumed by frontend must be prefixed `VITE_`.
+
+Run `node scripts/print-effective-config.js` to inspect non-secret config.
 
 ## 🤝 Contributing
 
