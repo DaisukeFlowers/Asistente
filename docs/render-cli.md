@@ -1,46 +1,71 @@
-## Render Deployment CLI
+## Render Blueprint & CLI Automation
 
-This repository provides automation for managing Render services (backend & frontend) using the Render HTTP API instead of the dashboard.
+Single source documentation for all Render-related automation (blueprint, local CLI, and GitHub Actions CI/CD).
 
-### Overview
-Components:
-- `render.yaml` blueprint (two services: `schedulink-api` web, `schedulink-app` static).
-- API wrapper `scripts/render/api.js`.
-- CLI scripts for listing services, triggering deploys, syncing environment variables.
+### Services Overview
+The blueprint `render.yaml` defines two services:
+- `schedulink-api` (type: web, Node) – backend API (Express) located under `backend/`.
+- `schedulink-app` (type: static) – Vite React frontend in `testapp/`.
 
-### Prerequisites
+### File Map
+| Path | Purpose |
+|------|---------|
+| `render.yaml` | Infrastructure-as-Code blueprint for both services. |
+| `scripts/render/api.js` | Low-level Render API wrapper. |
+| `scripts/render/list-services.js` | List existing Render services (id, name, type). |
+| `scripts/render/deploy.js` | Trigger deploy(s) by name or all. |
+| `scripts/render/set-env-from-file.js` | Sync env vars from a local file (with optional dry-run). |
+| `scripts/render/update-env.js` | Legacy env sync script (retained; prefer `set-env-from-file.js`). |
+| `.env.deployment.example` | Example of local deployment-related variables (no secrets). |
+| `.github/workflows/deploy.yml` | CI workflow to deploy on push/tag. |
+
+### Prerequisites (Local CLI)
 1. Create a Render API Key (Dashboard → Account Settings → API Keys).
-2. Export it or place in a non-committed file:
+2. Export it (preferred) or source a gitignored file:
 ```bash
 export RENDER_API_KEY=xxxxxxxxxxxxxxxx
 # or
 source .env.deployment.local
 ```
+3. (Optional) Capture service IDs once and store them locally (not committed).
 
-### NPM Commands
+### NPM Scripts
 | Command | Description |
 |---------|-------------|
 | `npm run render:list` | List service IDs, names, types. |
-| `npm run render:deploy:api` | Trigger deploy for backend only. |
-| `npm run render:deploy:app` | Trigger deploy for frontend only. |
-| `npm run render:deploy` | Deploy all services. |
-| `npm run render:env:api` | Sync env vars from `.env.render.api` to backend. |
-| `npm run render:env:app` | Sync env vars from `.env.render.app` to frontend. |
+| `npm run render:deploy:api` | Trigger backend deploy only. |
+| `npm run render:deploy:app` | Trigger frontend deploy only. |
+| `npm run render:deploy` | Deploy both services. |
+| `npm run render:env:api` | Sync backend env vars from `.env.render.api`. |
+| `npm run render:env:app` | Sync frontend env vars from `.env.render.app`. |
 
-### Environment Variable Sync
-Create files `.env.render.api` and/or `.env.render.app` (gitignored) with `KEY=VALUE` lines.
-
-Run:
+### Environment Variable Sync Workflow
+1. Create gitignored files:
+	- `.env.render.api`
+	- `.env.render.app`
+2. Populate each with `KEY=VALUE` lines.
+3. Dry-run review (after implementation of `--dry-run`):
+```bash
+RENDER_API_KEY=... node scripts/render/set-env-from-file.js --service schedulink-api --file .env.render.api --dry-run
+```
+4. Apply changes:
 ```bash
 RENDER_API_KEY=... npm run render:env:api
 ```
 Behavior:
-- Creates missing variables.
-- Updates changed variables.
-- Leaves others untouched.
-- Redacts sensitive values in output.
+- Creates missing vars (unless you pass `--no-create`).
+- Updates differing values.
+- Leaves unspecified vars untouched.
+- Redacts sensitive values (matches SECRET|TOKEN|KEY|PASSWORD).
 
-### Deploying
+### Dry Run Details
+When `--dry-run` is provided, the script outputs a categorized diff without modifying remote state:
+- Adds: variables that would be created.
+- Updates: old → new values (new redacted if sensitive).
+- Unchanged: variables matching exactly.
+Return code is 0 even if changes are pending (treat as advisory). Use tooling to flag non-empty diff if gating CI.
+
+### Deploying from CLI
 Backend only:
 ```bash
 RENDER_API_KEY=... npm run render:deploy:api
@@ -55,23 +80,50 @@ RENDER_API_KEY=... npm run render:deploy
 ```
 
 ### Finding Service IDs
-Use:
 ```bash
 RENDER_API_KEY=... npm run render:list
 ```
-Outputs tab-delimited rows: `<id> <name> <type>`.
+Output columns: `<id>\t<name>\t<type>`.
 
-### Security Notes
-- Never commit real tokens or secrets to git.
-- Example file `.env.deployment.example` shows expected variables.
-- Limit scope of the Render API Key in your account if granular scopes become available.
+### CI/CD (GitHub Actions)
+A workflow at `.github/workflows/deploy.yml` deploys on pushes to `main` and on semver tags. It:
+1. Checks out code
+2. Installs dependencies
+3. Runs lint/tests/build (adjust placeholders as needed)
+4. Triggers backend & frontend Render deploys sequentially (waits for completion)
+
+#### Required GitHub Secrets
+| Secret | Description |
+|--------|-------------|
+| `RENDER_API_KEY` | Render API key with deploy permissions. |
+| `RENDER_SERVICE_ID_API` | Service ID for backend (`schedulink-api`). |
+| `RENDER_SERVICE_ID_APP` | Service ID for frontend (`schedulink-app`). |
+
+Add these under: Repository Settings → Secrets and variables → Actions.
+
+### Security Best Practices
+- Never commit secrets or tokens (only example placeholders).
+- Rotate `RENDER_API_KEY` periodically and on contributor offboarding.
+- Use least privilege (when Render offers scoped keys) and store secrets in GitHub Actions secrets manager.
+- Validate production hardening flags (ENFORCE_HTTPS, CSP_STRICT, PRINT_SECRET_FINGERPRINTS=false) in a pre-deploy step.
 
 ### Validation Checklist
-- Backend listens on `process.env.PORT` (already implemented in server code).
-- `render.yaml` paths: backend `rootDir: ASISTENTE` (update if backend folder differs), frontend `rootDir: testapp`, publish `dist`.
-- Start command does not require dev dependencies beyond runtime.
+- Backend listens on `process.env.PORT` (implemented).
+- `render.yaml` backend `rootDir` matches actual backend folder (`backend/`).
+- Frontend build outputs `testapp/dist`.
+- Health endpoint at `/health` returns 200 (or 503 when dependencies missing) for Render health check.
 
-### Future Improvements
-- Add dry-run flag for env sync.
-- Add GitHub Action using these scripts.
-- Support service creation when Render exposes blueprint apply endpoint.
+### Future Enhancements
+- Add `--force-remove` / diff-only mode for variables present remotely but absent locally.
+- Integrate semantic release to tag + auto trigger deploys.
+- Cache dependency installs in GitHub Actions for speed.
+
+### Quick Start Summary
+```bash
+export RENDER_API_KEY=xxxxx
+npm run render:list
+npm run render:deploy:api
+node scripts/render/set-env-from-file.js --service schedulink-api --file .env.render.api --dry-run
+npm run render:env:api
+```
+

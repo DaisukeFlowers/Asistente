@@ -3,8 +3,8 @@ services:
     type: web
     env: node
     plan: starter
-    # Per specification backend root assumed ASISTENTE/ (adjust if path differs)
-    rootDir: ASISTENTE
+  # Adjusted to actual backend folder
+  rootDir: backend
     buildCommand: npm ci && npm run build
     startCommand: npm start
     autoDeploy: true
