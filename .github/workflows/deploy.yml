@@ -16,6 +16,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Cache npm
+        uses: actions/cache@v3
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
@@ -25,13 +33,16 @@ jobs:
       - name: Install root deps
         run: npm ci
 
+      - name: Install backend deps
+        run: npm --prefix backend ci
+
       - name: Install frontend deps
         run: npm --prefix testapp ci
 
-      - name: Backend lint (placeholder)
+      - name: Backend lint
         run: npm --prefix backend run lint
 
-      - name: Backend tests (placeholder)
+      - name: Backend tests
         run: npm --prefix backend test
 
       - name: Frontend lint

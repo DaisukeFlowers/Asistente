@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import fs from 'fs';
+import readline from 'readline';
 import { listServices, getEnvVars, patchEnvVar, createEnvVars } from './api.js';
 
 function parseArgs() {
@@ -94,23 +95,26 @@ async function main() {
       await patchEnvVar(svc.id, item.id, item.value);
       console.log(`Updated: ${item.key}`);
     }
-    if (opts.prune && missingLocally.length) {
-      if (!opts.force) {
-        console.error('Refusing to prune without --force. Keys:', missingLocally.join(', '));
-      } else {
-        // Delete each env var
-        for (const key of missingLocally) {
-          const envVar = existingMap.get(key);
-          if (!envVar) continue;
-          // Render API delete endpoint
-          const url = `https://api.render.com/v1/services/${svc.id}/env-vars/${envVar.id}`;
-          const fetchRes = await fetch(url, {
-            method: 'DELETE',
-            headers: { 'Authorization': `Bearer ${process.env.RENDER_API_KEY || process.env.RENDER_TOKEN}` }
-          });
-          if (fetchRes.ok) console.log(`Removed: ${key}`); else console.error(`Failed to remove ${key}: ${fetchRes.status}`);
+      if (opts.prune && missingLocally.length) {
+        let confirm = opts.force;
+        if (!confirm && process.stdout.isTTY) {
+          const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+          confirm = await new Promise(res => rl.question(`Remove ${missingLocally.length} remote-only keys? (${missingLocally.join(', ')}) (y/N) `, ans => { rl.close(); res(/^y(es)?$/i.test(ans)); }));
         }
-      }
+        if (!confirm) {
+          console.error('Prune aborted (use --force to skip prompt).');
+        } else {
+          for (const key of missingLocally) {
+            const envVar = existingMap.get(key);
+              if (!envVar) continue;
+              const url = `https://api.render.com/v1/services/${svc.id}/env-vars/${envVar.id}`;
+              const fetchRes = await fetch(url, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${process.env.RENDER_API_KEY || process.env.RENDER_TOKEN}` }
+              });
+              if (fetchRes.ok) console.log(`Removed: ${key}`); else console.error(`Failed to remove ${key}: ${fetchRes.status}`);
+          }
+        }
     }
     console.log(`Synced ${opts.service}. Summary:`);
     console.log('  Created:', toCreate.length);

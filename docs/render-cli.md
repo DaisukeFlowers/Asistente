@@ -40,6 +40,8 @@ source .env.deployment.local
 | `npm run render:env:app` | Sync frontend env vars from `.env.render.app`. |
 | `npm run render:rollback:api` | List recent backend deploys (add --deploy <id> to redeploy). |
 | `npm run render:rollback:app` | List recent frontend deploys. |
+| `npm --prefix backend run lint` | Run backend ESLint. |
+| `npm --prefix backend run test` | Run backend Jest tests. |
 
 ### Environment Variable Sync Workflow
 1. Create gitignored files:
@@ -88,14 +90,57 @@ RENDER_API_KEY=... npm run render:list
 ```
 Output columns: `<id>\t<name>\t<type>`.
 
+### Backend Linting & Testing
+Backend uses ESLint (recommended rules) and Jest for tests.
+Run lint:
+```bash
+npm --prefix backend run lint
+```
+Auto-fix:
+```bash
+npm --prefix backend run lint:fix
+```
+Run tests:
+```bash
+npm --prefix backend test
+```
+Watch mode:
+```bash
+npm --prefix backend run test:watch
+```
+
+### Commit-Based Rollback
+Use the rollback script with a commit SHA to create and push a temporary branch and trigger a deploy:
+```bash
+RENDER_API_KEY=... node scripts/render/rollback.js --service schedulink-api --commit <commit-sha>
+```
+Behavior:
+1. Verifies commit exists locally.
+2. Creates `rollback-<sha>` branch (if missing) and pushes it.
+3. Triggers a new deploy (latest code at that branch).
+4. After verification, you can delete the branch:
+```bash
+git push origin :rollback-<sha>
+```
+If non-interactive or you want to skip confirmation: add `--force`.
+
+Direct deploy of an arbitrary historical commit (without a branch) isn’t directly supported via current Render API; this branch strategy emulates rollback.
+
+### Workflow Caching
+CI uses `actions/cache@v3` for the global npm cache (`~/.npm`) keyed by all `package-lock.json` files. This speeds repeated installs while keeping deterministic builds via `npm ci`.
+
+### Interactive Prune Confirmation
+When using `--prune` without `--force` in a TTY session, you'll be prompted to confirm deletion of remote-only keys. Use `--force` for non-interactive (CI) pruning, or omit pruning entirely for safety.
+
 ### CI/CD (GitHub Actions)
 A workflow at `.github/workflows/deploy.yml` deploys on pushes to `main` and on semver tags. It:
-1. Checks out code
-2. Installs dependencies (root + frontend)
-3. Runs backend lint & tests (placeholders currently)
-4. Runs frontend lint & build
-5. Validates production security flags (`scripts/verify-prod-flags.js`)
-6. Triggers backend & frontend Render deploys sequentially (waits for completion)
+1. Checkout
+2. Restore npm cache (global)
+3. Install root, backend, frontend dependencies
+4. Run backend ESLint + tests
+5. Run frontend lint + build
+6. Verify production security flags
+7. Deploy backend then frontend (wait for completion)
 
 #### Required GitHub Secrets
 | Secret | Description |
@@ -124,6 +169,8 @@ Add these under: Repository Settings → Secrets and variables → Actions.
 - Integrate semantic release to tag + auto trigger deploys.
 - Cache dependency installs in GitHub Actions for speed.
  - Replace backend lint/test placeholders with real ESLint config and Jest/Vitest suite.
+ - Add coverage reporting & thresholds.
+ - Multi-stage deploy (staging → production promotion).
  - Improve rollback to target a specific past deploy commit when API adds direct rollback endpoint.
 
 ### Quick Start Summary
