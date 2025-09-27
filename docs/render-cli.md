@@ -38,6 +38,8 @@ source .env.deployment.local
 | `npm run render:deploy` | Deploy both services. |
 | `npm run render:env:api` | Sync backend env vars from `.env.render.api`. |
 | `npm run render:env:app` | Sync frontend env vars from `.env.render.app`. |
+| `npm run render:rollback:api` | List recent backend deploys (add --deploy <id> to redeploy). |
+| `npm run render:rollback:app` | List recent frontend deploys. |
 
 ### Environment Variable Sync Workflow
 1. Create gitignored files:
@@ -58,11 +60,12 @@ Behavior:
 - Leaves unspecified vars untouched.
 - Redacts sensitive values (matches SECRET|TOKEN|KEY|PASSWORD).
 
-### Dry Run Details
+### Dry Run & Prune Details
 When `--dry-run` is provided, the script outputs a categorized diff without modifying remote state:
 - Adds: variables that would be created.
 - Updates: old → new values (new redacted if sensitive).
 - Unchanged: variables matching exactly.
+If `--prune` is also provided, remote-only variables are listed under "Would remove". Add `--force` to actually delete them (without `--dry-run`).
 Return code is 0 even if changes are pending (treat as advisory). Use tooling to flag non-empty diff if gating CI.
 
 ### Deploying from CLI
@@ -88,9 +91,11 @@ Output columns: `<id>\t<name>\t<type>`.
 ### CI/CD (GitHub Actions)
 A workflow at `.github/workflows/deploy.yml` deploys on pushes to `main` and on semver tags. It:
 1. Checks out code
-2. Installs dependencies
-3. Runs lint/tests/build (adjust placeholders as needed)
-4. Triggers backend & frontend Render deploys sequentially (waits for completion)
+2. Installs dependencies (root + frontend)
+3. Runs backend lint & tests (placeholders currently)
+4. Runs frontend lint & build
+5. Validates production security flags (`scripts/verify-prod-flags.js`)
+6. Triggers backend & frontend Render deploys sequentially (waits for completion)
 
 #### Required GitHub Secrets
 | Secret | Description |
@@ -106,6 +111,7 @@ Add these under: Repository Settings → Secrets and variables → Actions.
 - Rotate `RENDER_API_KEY` periodically and on contributor offboarding.
 - Use least privilege (when Render offers scoped keys) and store secrets in GitHub Actions secrets manager.
 - Validate production hardening flags (ENFORCE_HTTPS, CSP_STRICT, PRINT_SECRET_FINGERPRINTS=false) in a pre-deploy step.
+	- Implemented via `scripts/verify-prod-flags.js` in CI.
 
 ### Validation Checklist
 - Backend listens on `process.env.PORT` (implemented).
@@ -117,6 +123,8 @@ Add these under: Repository Settings → Secrets and variables → Actions.
 - Add `--force-remove` / diff-only mode for variables present remotely but absent locally.
 - Integrate semantic release to tag + auto trigger deploys.
 - Cache dependency installs in GitHub Actions for speed.
+ - Replace backend lint/test placeholders with real ESLint config and Jest/Vitest suite.
+ - Improve rollback to target a specific past deploy commit when API adds direct rollback endpoint.
 
 ### Quick Start Summary
 ```bash

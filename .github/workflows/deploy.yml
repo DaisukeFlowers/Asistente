@@ -28,18 +28,27 @@ jobs:
       - name: Install frontend deps
         run: npm --prefix testapp ci
 
-      - name: Verify env schema (non-fatal in CI if not all prod vars present)
-        run: |
-          node scripts/verify-env.js || echo "Env validation failed (non-blocking in CI)"
+      - name: Backend lint (placeholder)
+        run: npm --prefix backend run lint
 
-      - name: Build frontend
+      - name: Backend tests (placeholder)
+        run: npm --prefix backend test
+
+      - name: Frontend lint
+        run: npm --prefix testapp run lint
+
+      - name: Frontend build
         run: npm --prefix testapp run build
 
-      - name: Lint placeholder
-        run: echo "(Add lint command here)"
-
-      - name: Test placeholder
-        run: echo "(Add test command here)"
+      - name: Verify production security flags
+        env:
+          ENFORCE_HTTPS: true
+          CSP_STRICT: true
+          PRINT_SECRET_FINGERPRINTS: false
+          HSTS_ENABLED: true
+          CSRF_PROTECTION_ENABLED: true
+          SECURITY_HEADERS_ENABLED: true
+        run: node scripts/verify-prod-flags.js
 
       - name: Deploy API Service
         uses: JorgeLNJunior/render-deploy@v1.4.5

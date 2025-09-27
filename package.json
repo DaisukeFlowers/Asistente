@@ -15,7 +15,9 @@
     "render:deploy:app": "node scripts/render/deploy.js --name schedulink-app",
     "render:deploy": "node scripts/render/deploy.js --all",
     "render:env:api": "node scripts/render/set-env-from-file.js --service schedulink-api --file .env.render.api",
-    "render:env:app": "node scripts/render/set-env-from-file.js --service schedulink-app --file .env.render.app"
+    "render:env:app": "node scripts/render/set-env-from-file.js --service schedulink-app --file .env.render.app",
+    "render:rollback:api": "node scripts/render/rollback.js --service schedulink-api --list",
+    "render:rollback:app": "node scripts/render/rollback.js --service schedulink-app --list"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.21",
