@@ -42,7 +42,7 @@ ENV/
 !.env.staging.example
 !.env.deployment.example
 
-# Render deployment local env files
+# Render deployment local env files (contain API keys / secrets locally; KEEP IGNORED)
 .env.deployment.local
 .env.render.api
 .env.render.app

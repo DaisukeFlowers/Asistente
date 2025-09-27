@@ -18,7 +18,8 @@
     "render:env:app": "node scripts/render/set-env-from-file.js --service schedulink-app --file .env.render.app",
     "render:rollback:api": "node scripts/render/rollback.js --service schedulink-api --list",
     "render:rollback:app": "node scripts/render/rollback.js --service schedulink-app --list",
-    "db:test": "node scripts/test-db.js"
+    "db:test": "node scripts/test-db.js",
+    "render:verify:post": "node scripts/render/post-verify.js"
   },
   "devDependencies": {
     "autoprefixer": "^10.4.21",
