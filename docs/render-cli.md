@@ -4,8 +4,11 @@ Single source documentation for all Render-related automation (blueprint, local 
 
 ### Services Overview
 The blueprint `render.yaml` defines two services:
-- `schedulink-api` (type: web, Node) – backend API (Express) located under `backend/`.
+- `schedulink-api` (type: web, Node) – backend API (Express). Root directory is set to the repository root (`.`) so shared root `package.json` build/start scripts function without duplication.
 - `schedulink-app` (type: static) – Vite React frontend in `testapp/`.
+
+Rationale for backend `rootDir: .`:
+Previously scripts lived at the repository root (build aggregates frontend build verification). Setting `rootDir: backend` caused Render to execute build/start where those scripts were absent → failure. Adjusting to `.` unblocks minimal deployment. A future refactor could relocate scripts into `backend/` and revert `rootDir` if desired.
 
 ### File Map
 | Path | Purpose |
@@ -44,8 +47,8 @@ source .env.deployment.local
 | `npm --prefix backend run test` | Run backend Jest tests. |
 
 ### Environment Variable Sync Workflow
-1. Create gitignored files:
-	- `.env.render.api`
+1. Create gitignored files (already referenced in `.gitignore`):
+	- `.env.render.api` (example placeholders created by tooling)
 	- `.env.render.app`
 2. Populate each with `KEY=VALUE` lines.
 3. Dry-run review (after implementation of `--dry-run`):
@@ -181,11 +184,22 @@ Add these under: Repository Settings → Secrets and variables → Actions.
 - Validate production hardening flags (ENFORCE_HTTPS, CSP_STRICT, PRINT_SECRET_FINGERPRINTS=false) in a pre-deploy step.
 	- Implemented via `scripts/verify-prod-flags.js` in CI.
 
-### Validation Checklist
+### Validation Checklist (Minimal Visibility Deploy)
 - Backend listens on `process.env.PORT` (implemented).
-- `render.yaml` backend `rootDir` matches actual backend folder (`backend/`).
+- `render.yaml` backend `rootDir` set to `.` (intentional so root scripts run).
 - Frontend build outputs `testapp/dist`.
-- Health endpoint at `/health` returns 200 (or 503 when dependencies missing) for Render health check.
+- Health endpoint at `/health` (alias of `/api/health`) returns 200 when dependencies OK.
+- Placeholder OAuth client values accepted by schema (login may fail gracefully until real credentials provided).
+
+### SPA Fallback (Static Site)
+For client-side routing (React Router, etc.), configure a fallback so deep links (e.g., `/dashboard`) resolve to `index.html` instead of 404.
+In Render Dashboard → Static Site → Settings → Redirects / Rewrites add:
+
+```
+/*    /index.html    200
+```
+
+Future enhancement: This could be codified if/when Render adds blueprint-level SPA fallback configuration.
 
 ### Future Enhancements
 - Add `--force-remove` / diff-only mode for variables present remotely but absent locally.

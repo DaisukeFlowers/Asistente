@@ -41,23 +41,18 @@ Completed: OAuth PKCE flow & ID token verification, encryption & token rotation 
 Blocking Remaining: Redis-enforced session persistence (production instance), distributed rate limiter (Redis buckets), staging vs prod OAuth separation + finalized consent screen, persistence of legal acceptance & user configuration, centralized log sink/retention, support contact email confirmation, integration & core unit tests, domain + TLS + HSTS activation, review PII log redaction vs needs, finalize data deletion processing (actual purge/anonymization pass), environment documentation final polish.
 
 ### Pre‑Deployment Gaps (Render Test Visibility Only)
-Goal: Get backend & frontend visible at Render URLs (Google login may fail). Only gaps that block a minimal visibility deployment are flagged ⚠️.
+Goal: Get backend & frontend visible at Render URLs (Google login may fail). All previously blocking gaps are now resolved (✅). Remaining informational items are listed for clarity.
 
-| Status | Gap | Impact on Test Deploy | Resolution |
-|--------|-----|-----------------------|------------|
-| ⚠️ | `render.yaml` service indentation (`rootDir` misaligned) | Blueprint may not parse -> deploy failure | Re-indent so backend service keys are under first `- name:` block |
-| ⚠️ | Backend `rootDir` points to `backend` but build/start scripts live at project root | Build fails (scripts not found) | Set backend service `rootDir: .` or move scripts; simplest: change to `.` |
-| ⚠️ | Missing minimal env vars on Render (placeholders fine) | Startup abort by env schema | Set CLIENT_ID / CLIENT_SECRET / REDIRECT_URI / FRONTEND_BASE_URL / SECRET_KEY / REFRESH_TOKEN_ENCRYPTION_KEY / DATABASE_URL / REDIS_URL (placeholders acceptable) |
-| ⚠️ | No prepared `.env.render.api` & `.env.render.app` files | Slower env population | Create gitignored files to speed env sync (optional but recommended) |
-| 📝 | Health check path mismatch (`/health` vs `/api/health`) | Non-blocking alias exists | Optionally standardize on `/api/health` later |
-| 📝 | SPA fallback config for static site not documented in blueprint | Frontend 404s on deep links | Configure fallback /* -> /index.html in Render Static Site settings |
+| Status | Gap | Impact | Resolution / Notes |
+|--------|-----|--------|--------------------|
+| ✅ | `render.yaml` indentation & service key alignment | Parsing failure risk | Fixed: proper indentation committed (2025-09-27) |
+| ✅ | Backend `rootDir` mismatch | Build failure | Set to `rootDir: .` so root scripts run |
+| ✅ | Minimal env var scaffolding | Startup abort without placeholders | `.env.render.api` & `.env.render.app` created (placeholders) |
+| ✅ | Gitignored Render env helper files absent | Slower manual entry | Added helper files + documented sync scripts |
+| 📝 | Health check path alias `/health` vs `/api/health` | Non-blocking | Alias retained; may standardize later |
+| 📝 | SPA fallback rewrite not codified | Deep link 404s | Added doc: /* → /index.html manual dashboard config |
 
-Minimal Unblock Steps (expected <15 min):
-1. Fix `render.yaml` indentation & set `rootDir: .` for backend.
-2. Add placeholder env vars via dashboard or sync script.
-3. Create `.env.render.api` / `.env.render.app` (optional but helpful) and run sync.
-4. Trigger backend deploy; verify `/health`.
-5. Trigger frontend deploy; verify index loads.
+Test Deployment Ready: ✅ (Proceed to create services from blueprint and sync placeholder env values; expect OAuth to fail gracefully until real credentials supplied.)
 
 ---
 ## Section 1: Security & Compliance
