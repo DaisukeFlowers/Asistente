@@ -19,7 +19,8 @@ const schema = z.object({
   CLIENT_SECRET: z.string().min(1, 'CLIENT_SECRET required'),
   REDIRECT_URI: z.string().min(1, 'REDIRECT_URI required'),
   SECRET_KEY: z.string().optional(), // required in prod; dev fallback generated
-  REFRESH_TOKEN_ENCRYPTION_KEY: z.string().min(32, 'REFRESH_TOKEN_ENCRYPTION_KEY must be >=32 chars'),
+  // In dev we now allow this to be omitted or short; we will auto-generate a strong ephemeral key.
+  REFRESH_TOKEN_ENCRYPTION_KEY: z.string().optional(),
   REFRESH_TOKEN_ENCRYPTION_KEY_PREVIOUS: z.string().optional().nullable(),
   FRONTEND_BASE_URL: z.string().optional(),
   N8N_WEBHOOK_URL: z.string().min(1, 'N8N_WEBHOOK_URL required'),
@@ -75,6 +76,7 @@ const isProd = parsed.NODE_ENV === 'production';
 const isStaging = parsed.NODE_ENV === 'staging';
 
 // Provide dev defaults for ease of local work
+// Development secret fallbacks (only for local / temporary visibility deployments)
 if (!parsed.SECRET_KEY) {
   if (isProd) throw new Error('SECRET_KEY missing in production');
   if (isStaging) {
@@ -83,6 +85,13 @@ if (!parsed.SECRET_KEY) {
   }
   parsed.SECRET_KEY = crypto.randomBytes(48).toString('hex');
   console.warn('[env] Generated ephemeral dev SECRET_KEY (do not rely on for prod/staging).');
+}
+if (!parsed.REFRESH_TOKEN_ENCRYPTION_KEY || parsed.REFRESH_TOKEN_ENCRYPTION_KEY.length < 32) {
+  if (isProd || isStaging) {
+    throw new Error('REFRESH_TOKEN_ENCRYPTION_KEY must be >=32 chars (missing or too short)');
+  }
+  parsed.REFRESH_TOKEN_ENCRYPTION_KEY = crypto.randomBytes(48).toString('hex');
+  console.warn('[env] Generated ephemeral dev REFRESH_TOKEN_ENCRYPTION_KEY (rotation will invalidate encrypted refresh tokens on restart).');
 }
 if (!parsed.FRONTEND_BASE_URL) {
   if (isProd || isStaging) throw new Error('FRONTEND_BASE_URL required');
@@ -117,6 +126,7 @@ if (isProd || isStaging) {
 
 // Additional secret strength checks
 if (parsed.SECRET_KEY.length < 32) throw new Error('SECRET_KEY must be >=32 chars');
+// At this point in dev we have generated a sufficiently long key; in prod/staging we already rejected earlier.
 if (parsed.REFRESH_TOKEN_ENCRYPTION_KEY.length < 32) throw new Error('REFRESH_TOKEN_ENCRYPTION_KEY must be >=32 chars');
 if (parsed.REFRESH_TOKEN_ENCRYPTION_KEY_PREVIOUS && parsed.REFRESH_TOKEN_ENCRYPTION_KEY_PREVIOUS.length < 32) {
   throw new Error('REFRESH_TOKEN_ENCRYPTION_KEY_PREVIOUS must be >=32 chars');

@@ -29,6 +29,7 @@ Managed Service Provisioning
 First Deployment (Visibility-Only) – Minimal Priority Path
 1. Create Render services (API + Static Site) using `render.yaml` guidance.  
 2. Set minimal env vars (placeholders acceptable initially): CLIENT_ID, CLIENT_SECRET, REDIRECT_URI (Render backend URL + `/api/auth/google/callback`), FRONTEND_BASE_URL, SECRET_KEY, REFRESH_TOKEN_ENCRYPTION_KEY, N8N_WEBHOOK_URL (placeholder), DATABASE_URL, REDIS_URL.  
+	- Dev convenience: If `SECRET_KEY` or `REFRESH_TOKEN_ENCRYPTION_KEY` are absent (or refresh key <32 chars) and `NODE_ENV=development`, the backend now auto-generates ephemeral strong values at startup (logged with a warning). Production & staging still REQUIRE explicit strong values (>=32 chars) and will fail fast.  
 3. Deploy; confirm `/api/health` returns ok and frontend loads root page.  
 4. Attempt Google login (expected pending until prod OAuth client finalization) → show graceful message.  
 5. Enable commit SHA log (already implemented) and capture in deployment output.  
