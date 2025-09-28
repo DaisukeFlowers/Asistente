@@ -52,6 +52,9 @@ Goal: Get backend & frontend visible at Render URLs (Google login may fail). All
 | ✅ | Gitignored Render env helper files absent | Slower manual entry | Added helper files + documented sync scripts |
 | 📝 | Health check path alias `/health` vs `/api/health` | Non-blocking | Alias retained; may standardize later |
 | 📝 | SPA fallback rewrite not codified | Deep link 404s | Added doc: /* → /index.html manual dashboard config |
+| ✅ | Repo clone-and-deploy ready (blueprint + env examples) | Faster contributor onboarding | `render.yaml` validated; README updated (2025-09-28) |
+| ⚠️ | Placeholder credentials in env examples | Must replace before production | `.env.example` contains placeholders only |
+| 📝 | Standardize health path to /api/health only | Minor consistency | Leave alias until clients updated |
 
 Test Deployment Ready: ✅ (Proceed to create services from blueprint and sync placeholder env values; expect OAuth to fail gracefully until real credentials supplied.)
 

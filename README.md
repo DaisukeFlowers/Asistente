@@ -1,55 +1,92 @@
-# Schedulink Backend (Node/Express) – Environment & Deployment
+# Schedulink – Backend & Frontend (Render Ready)
 
-Backend service providing secure Google OAuth (Authorization Code + PKCE), session management, token refresh, and forwarding to n8n workflows.
+Schedulink is a Node/Express backend (Google OAuth PKCE, encrypted refresh tokens, session + rate limiting scaffolding) plus a Vite React frontend. This repository is now clone‑and‑deploy ready for Render.
 
-## 🚀 Features
+## 🚀 Key Features (Backend)
 
-- User authentication (signup/login)
-- Google Calendar OAuth 2.0 integration
-- Automatic token forwarding to n8n webhook
-- Full calendar access (read/write permissions)
-- CORS-enabled for frontend integration
+- Google OAuth Authorization Code + PKCE
+- AES‑256‑GCM encrypted refresh tokens (key rotation path)
+- Session idle/absolute timeout + rotation policy
+- Calendar events CRUD (Google Calendar API) with retry/backoff
+- Audit logging (PII‑minimized) & security headers (CSP/HSTS toggles)
+- Health endpoints: `/api/health` and `/health`
+
+## 🗂 Monorepo Layout
+
+```
+render.yaml            # Blueprint (backend + static frontend)
+backend/               # Express server, config, middleware
+testapp/               # Vite React frontend
+scripts/render/        # Render automation (deploy, env sync, rollback)
+.env.example           # Backend env template (placeholders)
+testapp/.env.example   # Frontend env template (placeholders)
+```
 
 ## 📋 Prerequisites
 
-- Python 3.7+
-- Node.js 16+ (for future React frontend)
-- Google Cloud Console project with Calendar API enabled
-- n8n instance with webhook endpoint
+- Node.js 18+ (Render Node runtime currently >=18)
+- (Optional) Redis + Postgres for production hardening
+- Google Cloud project (OAuth consent + Calendar API)
+- n8n workflow endpoint (optional integration)
 
-## 🛠️ Quick Start (Development)
+## ⚡ Quick Start (Local Development)
 
-Clone & install:
 ```bash
-git clone <repo>
+git clone https://github.com/DaisukeFlowers/Asistente.git
 cd Asistente
-npm install            # installs backend deps + triggers frontend postinstall
-```
+npm ci
 
-Create local env file from example:
-```bash
+# Backend env
 cp .env.example .env.development.local
-# edit values (leave prod/staging secrets out of repo)
-```
+# Edit required values (CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, FRONTEND_BASE_URL, SECRET_KEY, REFRESH_TOKEN_ENCRYPTION_KEY)
 
-Run backend (dev auto-reload optional via backend package scripts):
-```bash
+# Frontend env (public vars only)
+cp testapp/.env.example testapp/.env.development.local
+
+# Run backend (port picked by env or default)
 npm run start
-```
 
-Run frontend (in parallel):
-```bash
+# Run frontend in another shell
 cd testapp && npm run dev
 ```
 
-#### n8n Webhook (Already Configured)
+## 🌐 Deployment (Render)
 
-The app is pre-configured with the n8n webhook URL. To change it, update:
-```python
-N8N_WEBHOOK_URL = 'your-new-webhook-url'
+### Option A – Deploy Button
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/DaisukeFlowers/Asistente)
+
+1. Click the button.
+2. In Render, review the two services (backend web + static site) from `render.yaml`.
+3. Add required environment variables before first deploy completes (see `.env.example`).
+4. Finish deploy; visit service URLs shown in dashboard.
+
+### Option B – Render CLI
+```bash
+npm install -g @renderinc/cli
+render login              # or export RENDER_API_KEY=...
+render blueprint apply render.yaml --confirm
+
+# Populate gitignored helper files with placeholders
+cp .env.example .env.render.api
+cp testapp/.env.example .env.render.app
+
+# (Edit .env.render.* with actual values)
+npm run render:env:api     # sync backend env vars
+npm run render:env:app     # sync frontend env vars
+
+# Deploy both services
+npm run render:deploy
 ```
 
-## � Environment Strategy
+### Verification
+```bash
+curl -s https://<backend-service>.onrender.com/health | jq .
+open https://<frontend-service>.onrender.com/
+```
+If you use client‑side routing in the frontend, add this rewrite in the static site settings: `/* -> /index.html (200)`.
+
+## 🔐 Environment Strategy
 
 Backend uses a centralized Zod schema (`backend/config/env.js`). Load order:
 1. `.env.development.local` (if NODE_ENV=development)
@@ -59,63 +96,29 @@ Staging: set `NODE_ENV=staging`; requires full core variables (mirrors prod but 
 
 Never commit real secrets – only `.env.example` and `.env.staging.example` remain tracked.
 
-## 📡 API Endpoints
+## 📡 Core Backend Routes (Representative)
+| Route | Purpose |
+|-------|---------|
+| `GET /api/health` | Liveness/readiness summary |
+| `GET /api/auth/google` | Start OAuth flow |
+| `GET /api/auth/google/callback` | OAuth callback (code→tokens) |
+| `POST /api/auth/refresh` | Refresh access token using encrypted refresh token |
+| `POST /api/logout` | Invalidate session |
+| `GET /api/calendar/events` | List calendar events |
+| `POST /api/calendar/events` | Create event |
 
-### Authentication Endpoints
+## 🔄 High Level Auth Flow
+1. User starts OAuth (PKCE verifier + state stored in cookies)
+2. Google redirects back with code
+3. Backend exchanges code → access & refresh tokens (refresh encrypted at rest)
+4. Session established; rotation & idle timers enforced
+5. Calendar operations call Google APIs (retry/backoff)
+6. (Optional) n8n webhook receives token metadata
 
-- `POST /api/signup` - Create new user account
-  ```json
-  {
-    "email": "user@example.com",
-    "password": "password123"
-  }
-  ```
-
-- `POST /api/login` - User login
-  ```json
-  {
-    "email": "user@example.com",
-    "password": "password123"
-  }
-  ```
-
-- `POST /api/logout` - User logout
-
-- `GET /api/status` - Check authentication status
-
-### Google Calendar Integration
-
-- `GET /login` - Initiate Google OAuth flow (requires authentication)
-- `GET /oauth2callback` - OAuth callback endpoint (handles Google response)
-
-## 🔄 User Flow
-
-1. **Sign Up/Login**: User creates account or logs in
-2. **Connect Calendar**: User clicks "Connect Google Calendar" 
-3. **OAuth**: User is redirected to Google consent screen
-4. **Authorization**: User grants calendar permissions
-5. **Token Exchange**: Backend exchanges code for access/refresh tokens
-6. **n8n Integration**: Tokens are automatically sent to n8n webhook
-7. **Success**: User sees confirmation message
-
-## 🧪 Testing
-
-### Test User Authentication
-
+## 🧪 Basic Local Smoke Test
 ```bash
-# Sign up
-curl -X POST http://localhost:5000/api/signup \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"test123"}'
-
-# Login
-curl -X POST http://localhost:5000/api/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"test@example.com","password":"test123"}' \
-  -c cookies.txt
-
-# Check status
-curl -X GET http://localhost:5000/api/status -b cookies.txt
+curl -s http://localhost:3000/api/health | jq .
+curl -I http://localhost:3000/health
 ```
 
 ### Test Google OAuth
@@ -125,15 +128,10 @@ curl -X GET http://localhost:5000/api/status -b cookies.txt
 3. Complete the Google OAuth flow
 4. Check your n8n webhook for received tokens
 
-## 🔧 Configuration
-
-### Current Configuration
-
-- **Google Client ID**: Pre-configured
-- **Google Client Secret**: Pre-configured  
-- **n8n Webhook**: Pre-configured
-- **Redirect URI**: `http://localhost:5000/oauth2callback`
-- **Scope**: Full Google Calendar access
+## 🔧 Configuration Notes
+- All required env vars enumerated in `.env.example`.
+- Production/staging must explicitly provide strong secrets (>=32 chars length, prefer >=64 hex).
+- Dev convenience: some secrets auto-generate when NODE_ENV=development.
 
 ### Security Notes
 
@@ -159,15 +157,14 @@ The app runs in debug mode by default. For production:
 app.run(debug=False, host='0.0.0.0')
 ```
 
-## 📊 Data Flow
-
+## 📊 Data Flow (Simplified)
 ```
-User -> React Frontend -> Flask Backend -> Google OAuth -> Google Calendar API
-                                      ↓
-                               n8n Webhook -> Virtual Assistant
+Browser -> Vite Frontend -> Express Backend -> Google OAuth -> Google Calendar API
+                               ↓
+                             n8n Webhook
 ```
 
-## � Migration (Env File Cleanup)
+## 🧹 Environment File Policy
 
 Removed legacy templates: `.env.production.example`, `.env.original.example` (duplicated / outdated). Use `.env.example` (backend) + `testapp/.env.example` (frontend). Create per‑environment local overrides:
 
@@ -197,5 +194,4 @@ Run `node scripts/print-effective-config.js` to inspect non-secret config.
 5. Submit a pull request
 
 ## 📞 Support
-
-For issues or questions, contact the development team.
+Open an issue or create a discussion in the repository.

@@ -29,3 +29,5 @@ services:
     envVars:
       - key: VITE_GOOGLE_CLIENT_ID
         value: "placeholder"
+    # NOTE: For client-side routing add a rewrite in dashboard Settings -> Redirects/Rewrites:
+    # /*  /index.html  200  (Render currently doesn't support SPA fallback in blueprint)

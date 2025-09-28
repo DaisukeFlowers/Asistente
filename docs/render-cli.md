@@ -8,6 +8,9 @@ The blueprint `render.yaml` defines two services:
 - `schedulink-app` (type: static) – Vite React frontend in `testapp/`.
 
 Rationale for backend `rootDir: .`:
+### Deploy Button
+Use the repository README Deploy to Render button for a one-click setup. After creation, immediately set env vars (placeholders from `.env.example`).
+
 Previously scripts lived at the repository root (build aggregates frontend build verification). Setting `rootDir: backend` caused Render to execute build/start where those scripts were absent → failure. Adjusting to `.` unblocks minimal deployment. A future refactor could relocate scripts into `backend/` and revert `rootDir` if desired.
 
 ### File Map
@@ -55,9 +58,10 @@ source .env.deployment.local
 ```bash
 RENDER_API_KEY=... node scripts/render/set-env-from-file.js --service schedulink-api --file .env.render.api --dry-run
 ```
-4. Apply changes:
+4. Apply changes (npm script shorthand wraps the same tool):
 ```bash
 RENDER_API_KEY=... npm run render:env:api
+RENDER_API_KEY=... npm run render:env:app
 ```
 Behavior:
 - Creates missing vars (unless you pass `--no-create`).
@@ -200,6 +204,7 @@ In Render Dashboard → Static Site → Settings → Redirects / Rewrites add:
 ```
 
 Future enhancement: This could be codified if/when Render adds blueprint-level SPA fallback configuration.
+Until then, remember to re-add the rule if the static site is recreated.
 
 ### Future Enhancements
 - Add `--force-remove` / diff-only mode for variables present remotely but absent locally.
