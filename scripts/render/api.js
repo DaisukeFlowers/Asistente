@@ -5,14 +5,16 @@ const BASE = 'https://api.render.com/v1';
 
 async function api(path, options = {}) {
   const key = requireApiKey();
-  const res = await fetch(BASE + path, {
-    ...options,
-    headers: {
-      'Authorization': `Bearer ${key}`,
-      'Content-Type': 'application/json',
-      ...(options.headers || {})
-    }
-  });
+  const method = (options.method || 'GET').toUpperCase();
+  const headers = {
+    'Authorization': `Bearer ${key}`,
+    ...(options.headers || {})
+  };
+  // Avoid sending Content-Type on GET/HEAD without body (some endpoints may 405)
+  if (!(method === 'GET' || method === 'HEAD')) {
+    if (!headers['Content-Type']) headers['Content-Type'] = 'application/json';
+  }
+  const res = await fetch(BASE + path, { ...options, method, headers });
   if (!res.ok) {
     const body = await res.text().catch(()=> '');
     throw new Error(`Render API ${res.status} ${res.statusText}: ${body}`);
@@ -48,5 +50,16 @@ export async function createEnvVars(serviceId, envVars) {
   return api(`/services/${serviceId}/env-vars`, {
     method: 'POST',
     body: JSON.stringify({ envVars })
+  });
+}
+
+export async function deleteService(serviceId) {
+  return api(`/services/${serviceId}`, { method: 'DELETE' });
+}
+
+export async function createService(payload) {
+  return api('/services', {
+    method: 'POST',
+    body: JSON.stringify(payload)
   });
 }
