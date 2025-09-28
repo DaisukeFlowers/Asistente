@@ -4,8 +4,8 @@ Single source documentation for all Render-related automation (blueprint, local 
 
 ### Services Overview
 The blueprint `render.yaml` defines two services:
-- `schedulink-api` (type: web, Node) – backend API (Express). Root directory is set to the repository root (`.`) so shared root `package.json` build/start scripts function without duplication.
-- `schedulink-app` (type: static) – Vite React frontend in `testapp/`.
+- `diyartec-api` (type: web, Node) – backend API (Express). Root directory is the repo root (`.`) for shared scripts.
+- `diyartec-app` (type: static) – Vite React frontend in `testapp/`.
 
 Rationale for backend `rootDir: .`:
 ### Deploy Button
@@ -56,7 +56,7 @@ source .env.deployment.local
 2. Populate each with `KEY=VALUE` lines.
 3. Dry-run review (after implementation of `--dry-run`):
 ```bash
-RENDER_API_KEY=... node scripts/render/set-env-from-file.js --service schedulink-api --file .env.render.api --dry-run
+RENDER_API_KEY=... node scripts/render/set-env-from-file.js --service diyartec-api --file .env.render.api --dry-run
 ```
 4. Apply changes (npm script shorthand wraps the same tool):
 ```bash
@@ -142,7 +142,7 @@ DATABASE_URL=postgresql://... npm run db:test
 
 Use the rollback script with a commit SHA to create and push a temporary branch and trigger a deploy:
 ```bash
-RENDER_API_KEY=... node scripts/render/rollback.js --service schedulink-api --commit <commit-sha>
+RENDER_API_KEY=... node scripts/render/rollback.js --service diyartec-api --commit <commit-sha>
 ```
 Behavior:
 1. Verifies commit exists locally.
@@ -176,8 +176,8 @@ A workflow at `.github/workflows/deploy.yml` deploys on pushes to `main` and on 
 | Secret | Description |
 |--------|-------------|
 | `RENDER_API_KEY` | Render API key with deploy permissions. |
-| `RENDER_SERVICE_ID_API` | Service ID for backend (`schedulink-api`). |
-| `RENDER_SERVICE_ID_APP` | Service ID for frontend (`schedulink-app`). |
+| `RENDER_SERVICE_ID_API` | Service ID for backend (`diyartec-api`). |
+| `RENDER_SERVICE_ID_APP` | Service ID for frontend (`diyartec-app`). |
 
 Add these under: Repository Settings → Secrets and variables → Actions.
 
@@ -185,7 +185,7 @@ Add these under: Repository Settings → Secrets and variables → Actions.
 - Never commit secrets or tokens (only example placeholders).
 - Rotate `RENDER_API_KEY` periodically and on contributor offboarding.
 - Use least privilege (when Render offers scoped keys) and store secrets in GitHub Actions secrets manager.
-- Validate production hardening flags (ENFORCE_HTTPS, CSP_STRICT, PRINT_SECRET_FINGERPRINTS=false) in a pre-deploy step.
+- Validate production hardening flags (ENFORCEHTTPS, CSPSTRICT, PRINT_SECRET_FINGERPRINTS=false) in a pre-deploy step.
 	- Implemented via `scripts/verify-prod-flags.js` in CI.
 
 ### Validation Checklist (Minimal Visibility Deploy)
@@ -220,7 +220,7 @@ Until then, remember to re-add the rule if the static site is recreated.
 export RENDER_API_KEY=xxxxx
 npm run render:list
 npm run render:deploy:api
-node scripts/render/set-env-from-file.js --service schedulink-api --file .env.render.api --dry-run
+node scripts/render/set-env-from-file.js --service diyartec-api --file .env.render.api --dry-run
 npm run render:env:api
 ```
 

@@ -1,4 +1,4 @@
-## Schedulink Production Launch Checklist
+## Diyartec Production Launch Checklist
 
 Status Legend:
 - ✅ Complete (meets production requirement and enforced)
@@ -17,8 +17,8 @@ Key References
 - Example env: `.env.example` (backend) and `testapp/.env.example` (frontend)
 
 Staging vs Production Policy
-- Distinct OAuth clients must be used (staging may allow relaxed CSP, secret fingerprints for debugging). Production requires CSP_STRICT=true, PRINT_SECRET_FINGERPRINTS=false.
-- HSTS is only enabled (HSTS_ENABLED=true) after custom domain + TLS verification; staging keeps it false to avoid preload misconfiguration.
+- Distinct OAuth clients must be used (staging may allow relaxed CSP, secret fingerprints for debugging). Production requires CSPSTRICT=true, PRINT_SECRET_FINGERPRINTS=false.
+- HSTS is only enabled (HSTSENABLED=true) after custom domain + TLS verification; staging keeps it false to avoid preload misconfiguration.
 - No environment may bypass Redis or Postgres in production or staging (guards in `env.js`). Emergency overrides (`ALLOW_INMEMORY_SESSION_IN_PROD`, `ALLOW_HEALTH_PASS_WITHOUT_REDIS`) are forbidden and blocked.
 
 Managed Service Provisioning
@@ -28,13 +28,13 @@ Managed Service Provisioning
 
 First Deployment (Visibility-Only) – Minimal Priority Path
 1. Create Render services (API + Static Site) using `render.yaml` guidance.  
-2. Set minimal env vars (placeholders acceptable initially): CLIENT_ID, CLIENT_SECRET, REDIRECT_URI (Render backend URL + `/api/auth/google/callback`), FRONTEND_BASE_URL, SECRET_KEY, REFRESH_TOKEN_ENCRYPTION_KEY, N8N_WEBHOOK_URL (placeholder), DATABASE_URL, REDIS_URL.  
+2. Set minimal env vars (placeholders acceptable initially): CLIENT_ID, CLIENT_SECRET, REDIRECT_URI (Render backend URL + `/api/auth/google/callback`), FRONTEND_BASE_URL, SECRETKEY, REFRESHTOKENENCRYPTIONKEY, N8N_WEBHOOK_URL (placeholder), DATABASE_URL, REDIS_URL.  
 	- Dev convenience: If `SECRET_KEY` or `REFRESH_TOKEN_ENCRYPTION_KEY` are absent (or refresh key <32 chars) and `NODE_ENV=development`, the backend now auto-generates ephemeral strong values at startup (logged with a warning). Production & staging still REQUIRE explicit strong values (>=32 chars) and will fail fast.  
 3. Deploy; confirm `/api/health` returns ok and frontend loads root page.  
 4. Attempt Google login (expected pending until prod OAuth client finalization) → show graceful message.  
 5. Enable commit SHA log (already implemented) and capture in deployment output.  
 6. Open issues for each remaining ⚠️ item with owner + target date.  
-7. Create staging OAuth client & configure relaxed CSP (CSP_STRICT=false) before tightening prod.
+7. Create staging OAuth client & configure relaxed CSP (CSPSTRICT=false) before tightening prod.
 
 ---
 ### Executive Snapshot
@@ -68,8 +68,8 @@ Test Deployment Ready: ✅ (Proceed to create services from blueprint and sync p
 | ✅ | CSRF protection active | `/api/auth/csrf-token` + HMAC sid check on mutating logout |
 | ✅ | CORS allow‑list enforced | Dynamic origin set from `FRONTEND_BASE_URL` + additional list |
 | ✅ | Security headers & CSP toggles | Strict vs relaxed branch in middleware |
-| ✅ | HTTPS redirect (ENFORCE_HTTPS flag) implemented | Middleware checks `x-forwarded-proto` |
-| ✅ | HSTS scaffold | Header set when HSTS_ENABLED && (prod or enforce https) |
+| ✅ | HTTPS redirect (ENFORCEHTTPS flag) implemented | Middleware checks `x-forwarded-proto` |
+| ✅ | HSTS scaffold | Header set when HSTSENABLED && (prod or enforce https) |
 | ✅ | Refresh token encryption (AES‑256‑GCM + key version) | `encrypt/decrypt` helpers with fingerprint prefixes |
 | ✅ | Session idle/absolute/rotation policy | Values from env; rotation logged |
 | ✅ | Token refresh (skew + explicit endpoint) | Automatic in `ensureSession`; manual `/api/auth/refresh` |
@@ -90,7 +90,7 @@ Test Deployment Ready: ✅ (Proceed to create services from blueprint and sync p
 | ⚠️ | Privacy & Terms URLs deployed & referenced in consent screen | Host static pages + set in Google console |
 | ⚠️ | Data deletion actual purge/anonymization | Implement scheduled job or immediate purge of rows + tokens |
 | ⚠️ | Staging vs production OAuth clients separated | Create prod client; remove localhost/test origins from prod |
-| ⚠️ | HSTS enabled post domain verification | Toggle HSTS_ENABLED=true after DNS + TLS stable |
+| ⚠️ | HSTS enabled post domain verification | Toggle HSTSENABLED=true after DNS + TLS stable |
 | ⚠️ | PII logging policy review | Confirm redaction logic vs operational needs |
 | ⚠️ | DPA / PHI scope evaluation | Document “No PHI / medical data stored” if applicable |
 | 📝 | CSP report-only endpoint & aggregation | Add `/csp-report` route & report-to header |
@@ -149,7 +149,7 @@ Test Deployment Ready: ✅ (Proceed to create services from blueprint and sync p
 | ⚠️ | Distributed rate limiting via Redis | Replace Map buckets with atomic operations |
 | ⚠️ | JSON structured logs (no ANSI) in prod | Switch Morgan/console to plain / add flag |
 | ⚠️ | Domain + TLS + HSTS rollout | Add custom domain, test redirects, enable HSTS |
-| ⚠️ | Staging vs production env separation | Distinct OAuth creds + staging CSP_STRICT=false |
+| ⚠️ | Staging vs production env separation | Distinct OAuth creds + staging CSPSTRICT=false |
 | ⚠️ | Central log sink configured | Forward webhook or agent (Datadog/Logtail) |
 | ⚠️ | Support email displayed in UI footer | Add to frontend layout |
 | ⚠️ | Render health check path set to `/api/health` | Confirm blueprint & dashboard settings |

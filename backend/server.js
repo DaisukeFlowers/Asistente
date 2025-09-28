@@ -104,8 +104,8 @@ function deriveKeyMaterial(secret) {
   const fingerprint = full.toString('hex').slice(0,8); // first 4 bytes hex for short id
   return { key: full, fingerprint };
 }
-const primaryKey = deriveKeyMaterial(CONFIG.REFRESH_TOKEN_ENCRYPTION_KEY);
-const previousKey = CONFIG.REFRESH_TOKEN_ENCRYPTION_KEY_PREVIOUS ? deriveKeyMaterial(CONFIG.REFRESH_TOKEN_ENCRYPTION_KEY_PREVIOUS) : null;
+const primaryKey = deriveKeyMaterial(CONFIG.REFRESHTOKENENCRYPTIONKEY);
+const previousKey = CONFIG.REFRESHTOKENENCRYPTIONKEY_PREVIOUS ? deriveKeyMaterial(CONFIG.REFRESHTOKENENCRYPTIONKEY_PREVIOUS) : null;
 
 // -----------------------------------------------------------------------------
 // Audit logging
@@ -268,7 +268,7 @@ app.use((req, res, next) => {
 // -----------------------------------------------------------------------------
 // Rate limiting (simple in-memory token bucket). Replace with Redis for multi-instance.
 // -----------------------------------------------------------------------------
-if (CONFIG.RATE_LIMIT_ENABLED) {
+if (CONFIG.RATELIMIT_ENABLED) {
   function classify(req) {
     if (req.path === '/api/health') return null; // skip health
     if (req.path.startsWith('/api/auth/google')) return 'auth';
@@ -324,8 +324,8 @@ if (CONFIG.RATE_LIMIT_ENABLED) {
   });
 }
 
-// Optional HTTPS enforcement (enabled when ENFORCE_HTTPS=true). Excludes /api/health for uptime checks.
-if (CONFIG.ENFORCE_HTTPS) {
+// Optional HTTPS enforcement (enabled when ENFORCEHTTPS=true). Excludes /api/health for uptime checks.
+if (CONFIG.ENFORCEHTTPS) {
   app.use((req, res, next) => {
     const proto = req.headers['x-forwarded-proto'] || (req.secure ? 'https' : 'http');
     if (proto !== 'https' && req.method === 'GET' && req.path !== '/api/health') {
@@ -337,7 +337,7 @@ if (CONFIG.ENFORCE_HTTPS) {
 }
 
 // Security headers (basic)
-if (CONFIG.SECURITY_HEADERS_ENABLED) {
+if (CONFIG.SECURITYHEADERSENABLED) {
   app.use((req,res,next) => {
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -347,7 +347,7 @@ if (CONFIG.SECURITY_HEADERS_ENABLED) {
     res.setHeader('X-Download-Options', 'noopen');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     // Content Security Policy
-    if (CONFIG.CSP_STRICT) {
+  if (CONFIG.CSPSTRICT) {
       const csp = [
         "default-src 'self'",
         "img-src 'self' https://*.googleusercontent.com data:",
@@ -374,7 +374,7 @@ if (CONFIG.SECURITY_HEADERS_ENABLED) {
       res.setHeader('Content-Security-Policy', csp);
     }
     // HSTS only when HTTPS enforced or production & enabled
-    if (CONFIG.HSTS_ENABLED && (CONFIG.ENFORCE_HTTPS || isProd)) {
+  if (CONFIG.HSTSENABLED && (CONFIG.ENFORCEHTTPS || isProd)) {
       // preload token optional after domain qualifies; includeSubDomains if you plan to enforce on all subdomains
       res.setHeader('Strict-Transport-Security', 'max-age=15552000; includeSubDomains'); // 180 days
     }
@@ -480,6 +480,40 @@ app.get(['/api/health', '/health'], async (req,res) => {
   };
   if (!overallOk) return res.status(503).json(body);
   res.json(body);
+});
+
+// ---------------------------------------------------------------------------
+// Version / build metadata endpoint (/api/version)
+// Exposes non-sensitive build info for diagnostics & cache busting.
+// commit_sha attempts to read from env COMMIT_SHA else git, populated at runtime.
+// ---------------------------------------------------------------------------
+let buildInfoCache = null;
+function loadBuildInfo() {
+  if (buildInfoCache) return buildInfoCache;
+  let commit = process.env.COMMIT_SHA || null;
+  try {
+    if (!commit) {
+      commit = execSync('git rev-parse --short HEAD').toString().trim();
+    }
+  } catch { /* ignore */ }
+  buildInfoCache = {
+    name: 'diyartec-api',
+    version: '1.0.0-diyartec',
+    commit_sha: commit,
+    build_time: new Date().toISOString(),
+    node: process.version,
+    security: {
+      enforce_https: CONFIG.ENFORCEHTTPS,
+      csp_strict: CONFIG.CSPSTRICT,
+      hsts_enabled: CONFIG.HSTSENABLED,
+      security_headers: CONFIG.SECURITYHEADERSENABLED,
+      rate_limit: CONFIG.RATELIMIT_ENABLED
+    }
+  };
+  return buildInfoCache;
+}
+app.get('/api/version', (_req,res) => {
+  res.json(loadBuildInfo());
 });
 
 // Step 1: Redirect user to Google auth consent
@@ -647,7 +681,7 @@ app.post('/api/legal/accept', async (req,res) => {
 });
 
 // CSRF token retrieval (double submit cookie pattern: send value in JS-visible cookie)
-if (CONFIG.CSRF_PROTECTION_ENABLED) {
+if (CONFIG.CSRFPROTECTION_ENABLED) {
   app.get('/api/auth/csrf-token', async (req,res) => {
     const result = await ensureSession(req, res);
     if (!result) return;
@@ -664,7 +698,7 @@ if (CONFIG.CSRF_PROTECTION_ENABLED) {
 // Logout
 app.post('/api/auth/logout', async (req,res) => {
   const sid = req.cookies[CONFIG.SESSION_COOKIE_NAME];
-  if (CONFIG.CSRF_PROTECTION_ENABLED) {
+  if (CONFIG.CSRFPROTECTION_ENABLED) {
     // Validate CSRF token from header X-CSRF-Token or custom header
     if (!sid || !(await sessionGet(sid))) {
       audit('csrf_validation_failed', { reason: 'no_session_for_logout' });

@@ -9,9 +9,9 @@ This document lists sensitive configuration values, their purpose, rotation guid
 | CLIENT_ID | Public OAuth Metadata | Google OAuth client identifier | Yes | Not secret, but validated for presence. |
 | CLIENT_SECRET | Sensitive Secret | Google OAuth client secret for code exchange | Yes | Rotate immediately if leaked. |
 | REDIRECT_URI | Config | OAuth redirect endpoint | Yes | Must match Google Console settings. |
-| SECRET_KEY | Sensitive Secret | Internal signing / future token HMAC uses | Yes | 32+ bytes recommended. |
-| REFRESH_TOKEN_ENCRYPTION_KEY | Sensitive Secret | AES-256-GCM key (derived via SHA-256) for encrypting stored refresh tokens | Yes | MUST be strong & random; placeholder forbidden in production. |
-| REFRESH_TOKEN_ENCRYPTION_KEY_PREVIOUS | Sensitive Secret (transitional) | Previous key for seamless rotation | No | Remove after rotation window closes. |
+| SECRETKEY | Sensitive Secret | Internal signing / future token HMAC uses | Yes | 32+ bytes recommended. (Legacy: SECRET_KEY) |
+| REFRESHTOKENENCRYPTIONKEY | Sensitive Secret | AES-256-GCM key (derived via SHA-256) for encrypting stored refresh tokens | Yes | MUST be strong & random; placeholder forbidden in production. (Legacy: REFRESH_TOKEN_ENCRYPTION_KEY) |
+| REFRESHTOKENENCRYPTIONKEY_PREVIOUS | Sensitive Secret (transitional) | Previous key for seamless rotation | No | Remove after rotation window closes. (Legacy: REFRESH_TOKEN_ENCRYPTION_KEY_PREVIOUS) |
 | N8N_WEBHOOK_URL | External Endpoint | Downstream automation hook | Yes | Not inherently secret but may reveal architecture; treat as internal. |
 | FRONTEND_BASE_URL | Config | Allowed origin / redirect target | Yes | Used for CORS allow-list. |
 
@@ -34,8 +34,8 @@ Fingerprints use SHA-256(secret) truncated to 12 hex chars. NEVER derived from t
 | Secret | Rotation Cadence | Trigger Conditions | Procedure |
 |--------|------------------|--------------------|-----------|
 | CLIENT_SECRET | Annual / On leak | Suspected compromise | Create new OAuth client or regenerate secret; deploy; revoke old if unused. |
-| REFRESH_TOKEN_ENCRYPTION_KEY | 6–12 months / On leak | Audit finding, breach | Set new key as REFRESH_TOKEN_ENCRYPTION_KEY; move old to REFRESH_TOKEN_ENCRYPTION_KEY_PREVIOUS; deploy; allow re-encryption as sessions refresh; remove previous after 30 days. |
-| SECRET_KEY | 6–12 months / On leak | Breach or rotation policy | Generate 32+ random bytes; deploy; (future) invalidates signed artifacts if used. |
+| REFRESHTOKENENCRYPTIONKEY (legacy: REFRESH_TOKEN_ENCRYPTION_KEY) | 6–12 months / On leak | Audit finding, breach | Set new key as REFRESHTOKENENCRYPTIONKEY; move old to REFRESHTOKENENCRYPTIONKEY_PREVIOUS; deploy; allow re-encryption as sessions refresh; remove previous after 30 days. |
+| SECRETKEY (legacy: SECRET_KEY) | 6–12 months / On leak | Breach or rotation policy | Generate 32+ random bytes; deploy; (future) invalidates signed artifacts if used. |
 
 ## 5. Rotation Timeline Example (Encryption Key)
 Day 0: Deploy new primary + set previous.
@@ -67,11 +67,11 @@ Or a secret manager (AWS Secrets Manager, GCP Secret Manager, Vault) with automa
 - Implement automatic key rotation workflow and alert on stale age.
 
 ## 10. Environment Variable Quick Checklist
-Required every deploy (non-test): CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SECRET_KEY, REFRESH_TOKEN_ENCRYPTION_KEY, N8N_WEBHOOK_URL, FRONTEND_BASE_URL.
+Required every deploy (non-test): CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, SECRETKEY, REFRESHTOKENENCRYPTIONKEY, N8N_WEBHOOK_URL, FRONTEND_BASE_URL.
 
-Transitional (if rotating): REFRESH_TOKEN_ENCRYPTION_KEY_PREVIOUS.
+Transitional (if rotating): REFRESHTOKENENCRYPTIONKEY_PREVIOUS.
 
-Optional toggles: AUDIT_LOG_ENABLED, RATE_LIMIT_ENABLED, CSRF_PROTECTION_ENABLED, CORS_ENABLED, SECURITY_HEADERS_ENABLED, CSP_STRICT, HSTS_ENABLED, PRINT_SECRET_FINGERPRINTS.
+Optional toggles (new naming): AUDIT_LOG_ENABLED, RATELIMIT_ENABLED, CSRFPROTECTION_ENABLED, CORS_ENABLED, SECURITYHEADERSENABLED, CSPSTRICT, HSTSENABLED, PRINT_SECRET_FINGERPRINTS (legacy name retained until migration complete).
 
 ---
 Maintained as part of security checklist item 1.15.

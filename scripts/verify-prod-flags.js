@@ -4,12 +4,12 @@
 // Fails (exit 1) if any required flag missing or incorrect.
 
 const REQUIRED = {
-  ENFORCE_HTTPS: 'true',
-  CSP_STRICT: 'true',
+  ENFORCEHTTPS: 'true',
+  CSPSTRICT: 'true',
   PRINT_SECRET_FINGERPRINTS: 'false',
-  HSTS_ENABLED: 'true',
-  CSRF_PROTECTION_ENABLED: 'true',
-  SECURITY_HEADERS_ENABLED: 'true',
+  HSTSENABLED: 'true',
+  CSRFPROTECTION_ENABLED: 'true',
+  SECURITYHEADERSENABLED: 'true',
   DATABASE_URL: 'present'
 };
 

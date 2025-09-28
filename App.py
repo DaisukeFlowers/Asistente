@@ -11,8 +11,9 @@ from flask import Flask, redirect, request, session, jsonify
 # -----------------------------------------------------------------------------
 app = Flask(__name__)
 
-# SECRET_KEY para sesiones (state de OAuth); ideal setearla via env en Render
-app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
+# SECRETKEY (legacy SECRET_KEY) para sesiones (state de OAuth); ideal setearla via env en Render.
+# Compatibilidad: se acepta SECRET_KEY durante ventana de migración.
+app.secret_key = os.environ.get("SECRETKEY") or os.environ.get("SECRET_KEY") or secrets.token_hex(32)
 
 # Cookies de sesión seguras (estás en HTTPS en Render)
 app.config.update(

@@ -1,26 +1,31 @@
 services:
-  - name: schedulink-api
+  - name: diyartec-api
     type: web
     env: node
     plan: starter
-    # Backend service runs from repository root so shared root package.json build/start scripts work.
-    # buildCommand builds the frontend (for optional static serving) but primary static site is separate.
     rootDir: .
-    buildCommand: npm ci && npm run build
+    buildCommand: npm ci && npm run build:api
     startCommand: npm start
     autoDeploy: true
-    # Health check uses /health (alias to /api/health in server). Standardization to /api/health is optional later.
-    healthCheckPath: /health
+    healthCheckPath: /api/health
     envVars:
-      - key: ENFORCE_HTTPS
+      - key: ENFORCEHTTPS
         value: "true"
-      - key: CSP_STRICT
+      - key: CSPSTRICT
         value: "true"
       - key: PRINT_SECRET_FINGERPRINTS
         value: "false"
-      # Secrets and runtime credentials are NOT stored in the blueprint. Use dashboard or env sync scripts.
+      - key: HSTSENABLED
+        value: "true"
+      - key: SECURITYHEADERSENABLED
+        value: "true"
+      - key: RATELIMIT_ENABLED
+        value: "true"
+      - key: CSRFPROTECTION_ENABLED
+        value: "true"
+      # Secrets & credentials are not embedded; sync via dashboard or automation scripts.
 
-  - name: schedulink-app
+  - name: diyartec-app
     type: static
     rootDir: testapp
     buildCommand: npm ci && npm run build
@@ -29,5 +34,5 @@ services:
     envVars:
       - key: VITE_GOOGLE_CLIENT_ID
         value: "placeholder"
-    # NOTE: For client-side routing add a rewrite in dashboard Settings -> Redirects/Rewrites:
-    # /*  /index.html  200  (Render currently doesn't support SPA fallback in blueprint)
+    # Add SPA rewrite in dashboard if deep links 404:
+    # /*  /index.html  200

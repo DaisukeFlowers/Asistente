@@ -1,0 +1,24 @@
+name: ci
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - name: Lint/Type placeholder
+        run: echo "(lint placeholder - add eslint/tsc later)"
+      - name: Verify env schema loads (smoke)
+        run: |
+          CLIENT_ID=a CLIENT_SECRET=b REDIRECT_URI=http://localhost/callback N8N_WEBHOOK_URL=http://localhost/hook node -e "import('./backend/config/env.js').then(()=>console.log('env ok')).catch(e=>{console.error(e);process.exit(1)})"
+      - name: Print effective config
+        run: CLIENT_ID=a CLIENT_SECRET=b REDIRECT_URI=http://localhost/callback N8N_WEBHOOK_URL=http://localhost/hook node scripts/print-effective-config.js

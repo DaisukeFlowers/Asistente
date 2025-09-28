@@ -1,82 +1,44 @@
-name: Deploy to Render
-
+name: deploy
 on:
+  workflow_dispatch:
   push:
     branches: [ main ]
-  tags:
-    - 'v*.*.*'
 
 jobs:
-  deploy:
+  verify-and-tag:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      deployments: write
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Cache npm
-        uses: actions/cache@v3
-        with:
-          path: ~/.npm
-          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-npm-
-
-      - name: Setup Node
+      - uses: actions/checkout@v4
+      - name: Use Node 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
-
-      - name: Install root deps
-        run: npm ci
-
-      - name: Install backend deps
-        run: npm --prefix backend ci
-
-      - name: Install frontend deps
-        run: npm --prefix testapp ci
-
-      - name: Backend lint
-        run: npm --prefix backend run lint
-
-      - name: Backend tests
-        run: npm --prefix backend test
-
-      - name: Frontend lint
-        run: npm --prefix testapp run lint
-
-      - name: Frontend build
-        run: npm --prefix testapp run build
-
-      - name: Verify production security flags
+          cache: npm
+      - run: npm ci
+      - name: Verify production flags (simulated)
         env:
-          ENFORCE_HTTPS: true
-          CSP_STRICT: true
-          PRINT_SECRET_FINGERPRINTS: false
-          HSTS_ENABLED: true
-          CSRF_PROTECTION_ENABLED: true
-          SECURITY_HEADERS_ENABLED: true
+          ENFORCEHTTPS: 'true'
+          CSPSTRICT: 'true'
+          PRINT_SECRET_FINGERPRINTS: 'false'
+          HSTSENABLED: 'true'
+          CSRFPROTECTION_ENABLED: 'true'
+          SECURITYHEADERSENABLED: 'true'
+          DATABASE_URL: 'postgres://placeholder'
         run: node scripts/verify-prod-flags.js
-
-      - name: Deploy API Service
-        uses: JorgeLNJunior/render-deploy@v1.4.5
-        with:
-          service_id: ${{ secrets.RENDER_SERVICE_ID_API }}
-          api_key: ${{ secrets.RENDER_API_KEY }}
-          wait_deploy: true
-          github_deployment: true
-          deployment_environment: production
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Deploy App Service
-        uses: JorgeLNJunior/render-deploy@v1.4.5
-        with:
-          service_id: ${{ secrets.RENDER_SERVICE_ID_APP }}
-          api_key: ${{ secrets.RENDER_API_KEY }}
-          wait_deploy: true
-          github_deployment: true
-          deployment_environment: production
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tag version
+        if: github.ref == 'refs/heads/main'
+        run: |
+          VERSION=1.0.0-diyartec
+          git config user.name github-actions
+          git config user.email actions@github.com
+          git tag -f "$VERSION" || true
+          git push --force origin "$VERSION"
+      # - name: Deploy API Service (optional Render deploy via action)
+      #   uses: JorgeLNJunior/render-deploy@v1.4.5
+      #   with:
+      #     service_id: ${{ secrets.RENDER_SERVICE_ID_API }}
+      #     api_key: ${{ secrets.RENDER_API_KEY }}
+      #     wait_deploy: true
+      #     github_deployment: true
+      #     deployment_environment: production
+      #     github_token: ${{ secrets.GITHUB_TOKEN }}

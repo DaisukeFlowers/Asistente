@@ -1,6 +1,6 @@
-# Schedulink – Backend & Frontend (Render Ready)
+# Diyartec Website – Backend & Frontend (Render Ready)
 
-Schedulink is a Node/Express backend (Google OAuth PKCE, encrypted refresh tokens, session + rate limiting scaffolding) plus a Vite React frontend. This repository is now clone‑and‑deploy ready for Render.
+This repository contains the Diyartec API (Node/Express) and Diyartec React frontend (Vite). It evolved from the original Schedulink codebase and has been rebranded & hardened: new environment variable naming, /api/version endpoint, and CI/rotation scaffolding.
 
 ## 🚀 Key Features (Backend)
 
@@ -38,7 +38,7 @@ npm ci
 
 # Backend env
 cp .env.example .env.development.local
-# Edit required values (CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, FRONTEND_BASE_URL, SECRET_KEY, REFRESH_TOKEN_ENCRYPTION_KEY)
+# Edit required values (CLIENT_ID, CLIENT_SECRET, REDIRECT_URI, FRONTEND_BASE_URL, SECRETKEY, REFRESHTOKENENCRYPTIONKEY)
 
 # Frontend env (public vars only)
 cp testapp/.env.example testapp/.env.development.local
@@ -100,6 +100,7 @@ Never commit real secrets – only `.env.example` and `.env.staging.example` rem
 | Route | Purpose |
 |-------|---------|
 | `GET /api/health` | Liveness/readiness summary |
+| `GET /api/version` | Build metadata (commit, version, flags) |
 | `GET /api/auth/google` | Start OAuth flow |
 | `GET /api/auth/google/callback` | OAuth callback (code→tokens) |
 | `POST /api/auth/refresh` | Refresh access token using encrypted refresh token |
@@ -130,14 +131,14 @@ curl -I http://localhost:3000/health
 
 ## 🔧 Configuration Notes
 - All required env vars enumerated in `.env.example`.
-- Production/staging must explicitly provide strong secrets (>=32 chars length, prefer >=64 hex).
-- Dev convenience: some secrets auto-generate when NODE_ENV=development.
+- Production/staging must explicitly provide strong secrets (>=32 chars length, prefer >=64 hex). (SECRETKEY, REFRESHTOKENENCRYPTIONKEY)
+- Dev convenience: secrets auto-generate only in NODE_ENV=development (ephemeral, warned).
 
 ### Security Notes
 
 - Authorization Code + PKCE; refresh tokens encrypted (AES-256-GCM) with key rotation support.
 - Sessions rotate & enforce idle/absolute timeouts.
-- CSP strict in production; staging may run relaxed (`CSP_STRICT=false`).
+- CSP strict in production; staging may run relaxed (`CSPSTRICT=false`).
 - HTTPS, HSTS enforced in production when TLS validated.
 
 ## 🐛 Troubleshooting
@@ -183,7 +184,7 @@ testapp/.env.staging.local
 
 All custom variables consumed by frontend must be prefixed `VITE_`.
 
-Run `node scripts/print-effective-config.js` to inspect non-secret config.
+Run `node scripts/print-effective-config.js` to inspect non-secret config (uses new flag names: ENFORCEHTTPS, CSPSTRICT, etc.).
 
 ## 🤝 Contributing
 
